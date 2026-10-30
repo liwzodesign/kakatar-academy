@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.db.models import Avg, Count
+from .access import ACCESS_STATUSES, can_view_lesson, get_enrollment
 from .models import Course, Module, Lesson, Enrollment, CourseReview, Category
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -25,40 +26,60 @@ class CategorySerializer(serializers.ModelSerializer):
         return obj.courses.filter(status='PUBLISHED').count()
 
 class LessonSerializer(serializers.ModelSerializer):
-    """Sérialiseur pour les leçons"""
-    
+    """Leçon : le contenu n'est renvoyé qu'aux personnes qui y ont accès"""
+
     duration_display = serializers.SerializerMethodField()
     is_completed = serializers.SerializerMethodField()
-    
+    is_locked = serializers.SerializerMethodField()
+
+    PROTECTED_FIELDS = ('content', 'video_url', 'resources', 'attachments')
+
     class Meta:
         model = Lesson
         fields = [
             'id', 'title', 'description', 'type', 'order', 'content',
             'video_url', 'video_duration', 'video_thumbnail', 'resources',
             'attachments', 'is_free', 'is_required', 'estimated_duration',
-            'status', 'duration_display', 'is_completed'
+            'status', 'duration_display', 'is_completed', 'is_locked'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-    
+        read_only_fields = ['id']
+
+    def _enrollment(self, obj):
+        request = self.context.get('request')
+        if not request:
+            return None
+        cache = self.context.setdefault('_enrollment_cache', {})
+        course_id = obj.module.course_id
+        if course_id not in cache:
+            cache[course_id] = get_enrollment(request.user, obj.module.course)
+        return cache[course_id]
+
     def get_duration_display(self, obj):
         return obj.get_duration_display()
-    
+
     def get_is_completed(self, obj):
-        """Vérifie si la leçon est terminée par l'utilisateur actuel"""
-        request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            enrollment = request.user.enrollments.filter(
-                course=obj.module.course,
-                status='ACTIVE'
-            ).first()
-            if enrollment:
-                return enrollment.completed_lessons.filter(id=obj.id).exists()
+        enrollment = self._enrollment(obj)
+        if enrollment:
+            return enrollment.completed_lessons.filter(id=obj.id).exists()
         return False
+
+    def get_is_locked(self, obj):
+        request = self.context.get('request')
+        user = request.user if request else None
+        return not can_view_lesson(user, obj, self._enrollment(obj))
+
+    def to_representation(self, obj):
+        data = super().to_representation(obj)
+        if data.get('is_locked'):
+            for field in self.PROTECTED_FIELDS:
+                if field in data:
+                    data[field] = [] if field in ('resources', 'attachments') else ''
+        return data
 
 class ModuleSerializer(serializers.ModelSerializer):
     """Sérialiseur pour les modules"""
     
-    lessons = LessonSerializer(many=True, read_only=True)
+    lessons = serializers.SerializerMethodField()
     lessons_count = serializers.SerializerMethodField()
     duration = serializers.SerializerMethodField()
     progress = serializers.SerializerMethodField()
@@ -71,23 +92,24 @@ class ModuleSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
     
+    def get_lessons(self, obj):
+        lessons = obj.lessons.filter(status=Lesson.Status.PUBLISHED).order_by('order')
+        return LessonSerializer(lessons, many=True, context=self.context).data
+
     def get_lessons_count(self, obj):
-        return obj.get_lessons_count()
-    
-    def get_duration(self):
+        return obj.lessons.filter(status=Lesson.Status.PUBLISHED).count()
+
+    def get_duration(self, obj):
         return obj.get_duration()
     
     def get_progress(self, obj):
         """Calcule la progression dans le module"""
         request = self.context.get('request')
         if request and request.user.is_authenticated:
-            enrollment = request.user.enrollments.filter(
-                course=obj.course,
-                status='ACTIVE'
-            ).first()
+            enrollment = get_enrollment(request.user, obj.course)
             if enrollment:
                 completed_lessons = enrollment.completed_lessons.filter(module=obj).count()
-                total_lessons = obj.lessons.count()
+                total_lessons = obj.lessons.filter(status=Lesson.Status.PUBLISHED).count()
                 if total_lessons > 0:
                     return (completed_lessons / total_lessons) * 100
         return 0
@@ -130,7 +152,7 @@ class CourseReviewCreateSerializer(serializers.ModelSerializer):
         
         if request and course:
             # Vérifier si l'utilisateur est inscrit au cours
-            if not request.user.enrollments.filter(course=course, status='ACTIVE').exists():
+            if not request.user.enrollments.filter(course=course, status__in=ACCESS_STATUSES).exists():
                 raise serializers.ValidationError(
                     "Vous devez être inscrit au cours pour laisser un avis."
                 )
@@ -147,16 +169,16 @@ class EnrollmentSerializer(serializers.ModelSerializer):
     """Sérialiseur pour les inscriptions"""
     
     course = serializers.SerializerMethodField()
-    current_lesson = LessonSerializer(read_only=True)
-    
+    current_lesson = serializers.PrimaryKeyRelatedField(read_only=True)
+
     class Meta:
         model = Enrollment
         fields = [
             'id', 'course', 'status', 'progress', 'completed_lessons',
             'current_lesson', 'enrolled_at', 'completed_at', 'last_accessed',
-            'certificate_issued', 'certificate_issued_at'
+            'certificate_issued', 'certificate_issued_at', 'certificate_code'
         ]
-        read_only_fields = ['id', 'enrolled_at', 'completed_at', 'last_accessed']
+        read_only_fields = fields
     
     def get_course(self, obj):
         return {
@@ -164,7 +186,9 @@ class EnrollmentSerializer(serializers.ModelSerializer):
             'title': obj.course.title,
             'slug': obj.course.slug,
             'thumbnail': obj.course.thumbnail.url if obj.course.thumbnail else None,
-            'instructor': obj.course.instructor.get_full_name()
+            'instructor': obj.course.instructor.get_full_name(),
+            'lessons_count': obj.course.lessons_count,
+            'duration': obj.course.duration,
         }
 
 class CourseListSerializer(serializers.ModelSerializer):
@@ -180,11 +204,11 @@ class CourseListSerializer(serializers.ModelSerializer):
         model = Course
         fields = [
             'id', 'title', 'slug', 'subtitle', 'short_description',
-            'thumbnail', 'category', 'level', 'type', 'price_display',
+            'thumbnail', 'category', 'level', 'type', 'price', 'price_display',
             'original_price', 'currency', 'is_featured', 'is_premium',
             'duration', 'lessons_count', 'students_count', 'rating_average',
             'rating_count', 'completion_rate', 'instructor',
-            'discount_percentage', 'enrollment_count', 'published_at'
+            'discount_percentage', 'enrollment_count', 'published_at', 'status'
         ]
     
     def get_instructor(self, obj):
@@ -210,8 +234,8 @@ class CourseDetailSerializer(serializers.ModelSerializer):
     
     instructor = serializers.SerializerMethodField()
     category = CategorySerializer(read_only=True)
-    modules = ModuleSerializer(many=True, read_only=True)
-    reviews = CourseReviewSerializer(many=True, read_only=True)
+    modules = serializers.SerializerMethodField()
+    reviews = serializers.SerializerMethodField()
     price_display = serializers.SerializerMethodField()
     discount_percentage = serializers.SerializerMethodField()
     is_enrolled = serializers.SerializerMethodField()
@@ -250,30 +274,33 @@ class CourseDetailSerializer(serializers.ModelSerializer):
     def get_discount_percentage(self, obj):
         return obj.get_discount_percentage()
     
-    def get_is_enrolled(self, obj):
-        """Vérifie si l'utilisateur actuel est inscrit au cours"""
+    def get_modules(self, obj):
+        return ModuleSerializer(obj.modules.order_by('order'), many=True, context=self.context).data
+
+    def get_reviews(self, obj):
+        reviews = obj.reviews.select_related('user')[:20]
+        return CourseReviewSerializer(reviews, many=True, context=self.context).data
+
+    def _enrollment(self, obj):
         request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            return obj.enrollments.filter(
-                user=request.user,
-                status='ACTIVE'
-            ).exists()
-        return False
-    
+        return get_enrollment(request.user, obj) if request else None
+
+    def get_is_enrolled(self, obj):
+        """Vérifie si l'utilisateur actuel a accès au cours"""
+        return self._enrollment(obj) is not None
+
     def get_enrollment_progress(self, obj):
         """Retourne la progression de l'utilisateur dans le cours"""
-        request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            enrollment = obj.enrollments.filter(
-                user=request.user,
-                status='ACTIVE'
-            ).first()
-            if enrollment:
-                return {
-                    'progress': enrollment.progress,
-                    'current_lesson': enrollment.current_lesson.id if enrollment.current_lesson else None,
-                    'completed_lessons_count': enrollment.completed_lessons.count()
-                }
+        enrollment = self._enrollment(obj)
+        if enrollment:
+            return {
+                'id': str(enrollment.id),
+                'status': enrollment.status,
+                'progress': enrollment.progress,
+                'current_lesson': enrollment.current_lesson_id,
+                'completed_lessons': [str(i) for i in enrollment.completed_lessons.values_list('id', flat=True)],
+                'certificate_issued': enrollment.certificate_issued,
+            }
         return None
     
     def get_related_courses(self, obj):
@@ -294,14 +321,23 @@ class CourseCreateSerializer(serializers.ModelSerializer):
             'title', 'subtitle', 'description', 'short_description',
             'thumbnail', 'cover_image', 'preview_video', 'category',
             'level', 'type', 'tags', 'price', 'original_price',
-            'currency', 'is_featured', 'is_premium', 'language',
+            'currency', 'is_premium', 'language', 'status',
             'allow_reviews', 'allow_downloads', 'certificate_available',
             'max_students', 'meta_title', 'meta_description', 'keywords'
         ]
     
+    def validate_title(self, value):
+        return value.strip()
+
     def create(self, validated_data):
-        """Crée le cours avec l'instructeur actuel"""
-        validated_data['instructor'] = self.context['request'].user
+        """Crée le cours avec un slug unique"""
+        from django.utils.text import slugify
+        base = slugify(validated_data['title'])[:180] or 'cours'
+        slug, i = base, 2
+        while Course.objects.filter(slug=slug).exists():
+            slug = f"{base}-{i}"
+            i += 1
+        validated_data['slug'] = slug
         return super().create(validated_data)
 
 class CourseUpdateSerializer(serializers.ModelSerializer):
@@ -313,7 +349,7 @@ class CourseUpdateSerializer(serializers.ModelSerializer):
             'title', 'subtitle', 'description', 'short_description',
             'thumbnail', 'cover_image', 'preview_video', 'category',
             'level', 'type', 'tags', 'price', 'original_price',
-            'currency', 'is_featured', 'is_premium', 'language',
+            'currency', 'is_premium', 'language', 'status',
             'allow_reviews', 'allow_downloads', 'certificate_available',
             'max_students', 'meta_title', 'meta_description', 'keywords'
         ]

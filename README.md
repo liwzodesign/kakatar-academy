@@ -1,275 +1,92 @@
-# 🎓 Kakatar Academy - Plateforme d'Apprentissage Hybride
+# Kakatar Academy
 
-## 📋 Description
+Plateforme de formation en ligne de Kakatar Graphic : catalogue, paiement Wave / Orange Money,
+lecteur de leçons avec progression, et certificat PDF vérifiable.
 
-Kakatar Academy est une plateforme d'apprentissage en ligne moderne et complète, conçue pour offrir une expérience pédagogique supérieure en combinant contenu multimédia, collaboration, intelligence artificielle, outils marketing et fonctionnalités sociales.
+## Ce qui fonctionne (MVP)
 
-## ✨ Fonctionnalités Principales
+| Domaine | Détail |
+|---|---|
+| Comptes | Inscription, connexion JWT (rafraîchissement auto), mot de passe oublié par email |
+| Catalogue | Recherche, filtres par catégorie, fiche formation avec programme |
+| Accès | Contenu des leçons payantes masqué côté serveur ; leçon d'aperçu gratuite |
+| Paiement | **Wave Checkout** et **PayDunya** (Orange Money, Free Money, carte), codes promo, commission formateur 15 % |
+| Apprentissage | Lecteur (texte, vidéo YouTube/Vimeo/MP4), « marquer comme terminée », progression |
+| Certificat | PDF généré à 100 %, code unique + page publique de vérification `/certificats/<code>` |
+| Formateur | Liste de ses cours + statistiques (inscrits, complétion, ventes) ; contenu édité dans l'admin Django |
 
-### 🔐 Authentification & Gestion des Utilisateurs
-- **Système de rôles** : Étudiant, Formateur, Administrateur, Modérateur, Partenaire
-- **Vérification des comptes formateurs** avec documents et CV
-- **Authentification à deux facteurs** (MFA)
-- **Gestion des profils** avec compétences et objectifs d'apprentissage
+Prévu en V2 : sessions en présentiel, marketplace, recommandations IA, éditeur de cours dans le front,
+double authentification.
 
-### 📚 Gestion des Cours
-- **Création de cours** avec modules et leçons
-- **Types de contenu** : Vidéo, Texte, Quiz, Projet, Ressource
-- **Structure hiérarchique** : Cours > Modules > Leçons
-- **Système de progression** et suivi des étudiants
+## Démarrer en local
 
-### 💳 Système de Paiement
-- **Multi-gateways** : Stripe, PayDunya, Wave, Mobile Money
-- **Codes promo** et système de remises
-- **Gestion des commissions** automatique pour les formateurs
-- **Abonnements** et paiements récurrents
+**Backend** (SQLite par défaut, aucun service externe requis)
 
-### 🎥 Gestion Vidéo
-- **Streaming HLS/DASH** avec CDN
-- **Upload sécurisé** vers S3/Cloudflare R2
-- **Sous-titrage automatique** via IA
-- **Mode hors-ligne** chiffré
-
-### 🤖 Services IA
-- **Recommandations de cours** basées sur l'IA
-- **Génération automatique de quiz**
-- **Résumés automatiques** des leçons
-- **Modération automatique** du contenu
-
-### 🏪 Marketplace
-- **Vente de ressources** (templates, fichiers source)
-- **Services de coaching** et prestations
-- **Gestion des livraisons** numériques
-
-### 📊 Analytics & Reporting
-- **Dashboard complet** pour formateurs et administrateurs
-- **Métriques d'engagement** et taux de complétion
-- **Export des données** (CSV/Excel)
-
-## 🏗️ Architecture Technique
-
-### Frontend
-- **React 18** + TypeScript
-- **Tailwind CSS** pour le styling
-- **Framer Motion** pour les animations
-- **Vite** pour le build et le développement
-
-### Backend
-- **Django 5.0** + Python 3.11+
-- **Django REST Framework** pour l'API
-- **PostgreSQL** comme base de données principale
-- **Redis** pour le cache et les sessions
-- **GraphQL** avec Graphene-Django
-
-### Infrastructure
-- **CDN** pour les assets et vidéos
-- **Stockage S3/R2** pour les fichiers
-- **Elasticsearch** pour la recherche
-- **Monitoring** avec Sentry et Prometheus
-
-## 🚀 Installation & Configuration
-
-### Prérequis
-- Python 3.11+
-- Node.js 18+
-- PostgreSQL 14+
-- Redis 6+
-- FFmpeg (pour le traitement vidéo)
-
-### 1. Cloner le projet
 ```bash
-git clone https://github.com/votre-username/kakatar-academy.git
-cd kakatar-academy
-```
-
-### 2. Configuration Backend
-```bash
-# Créer un environnement virtuel
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# ou
-venv\Scripts\activate  # Windows
-
-# Installer les dépendances
 cd backend
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
-# Créer le fichier .env
-cp .env.example .env
-# Éditer .env avec vos configurations
-
-# Migrations et superuser
-python manage.py makemigrations
+echo "DEBUG=True" > .env
 python manage.py migrate
-python manage.py createsuperuser
-
-# Démarrer le serveur
-python manage.py runserver
+python manage.py createsuperuser            # email + mot de passe
+python manage.py seed_kakatar_courses --instructor VOTRE@EMAIL --publish
+python manage.py runserver                  # http://localhost:8000  (admin : /admin/)
 ```
 
-### 3. Configuration Frontend
+**Frontend**
+
 ```bash
-# Installer les dépendances
 npm install
-
-# Démarrer le serveur de développement
-npm run dev
+npm run dev                                 # http://localhost:5173
 ```
 
-### 4. Configuration Base de Données
-```sql
--- Créer la base de données
-CREATE DATABASE kakatar_academy;
-CREATE USER kakatar_user WITH PASSWORD 'votre_mot_de_passe';
-GRANT ALL PRIVILEGES ON DATABASE kakatar_academy TO kakatar_user;
-```
+**Tests**
 
-## 🔧 Configuration des Variables d'Environnement
-
-Créez un fichier `.env` dans le dossier `backend/` :
-
-```env
-# Django
-DEBUG=True
-SECRET_KEY=votre-secret-key-ici
-ALLOWED_HOSTS=localhost,127.0.0.1
-
-# Base de données
-DB_NAME=kakatar_academy
-DB_USER=kakatar_user
-DB_PASSWORD=votre_mot_de_passe
-DB_HOST=localhost
-DB_PORT=5432
-
-# Redis
-REDIS_URL=redis://127.0.0.1:6379/1
-
-# Email
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USE_TLS=True
-EMAIL_HOST_USER=votre-email@gmail.com
-EMAIL_HOST_PASSWORD=votre-app-password
-
-# Stripe
-STRIPE_PUBLISHABLE_KEY=pk_test_votre_cle
-STRIPE_SECRET_KEY=sk_test_votre_cle
-STRIPE_WEBHOOK_SECRET=whsec_votre_webhook
-
-# OpenAI
-OPENAI_API_KEY=votre_cle_openai
-
-# AWS S3 (optionnel)
-USE_S3=False
-AWS_ACCESS_KEY_ID=votre_cle_aws
-AWS_SECRET_ACCESS_KEY=votre_secret_aws
-AWS_STORAGE_BUCKET_NAME=votre_bucket
-```
-
-## 📱 Structure de l'Application
-
-```
-kakataracademy/
-├── frontend/                 # Application React
-│   ├── src/
-│   │   ├── components/      # Composants réutilisables
-│   │   ├── pages/          # Pages de l'application
-│   │   ├── hooks/          # Hooks personnalisés
-│   │   ├── services/       # Services API
-│   │   └── utils/          # Utilitaires
-│   └── public/             # Assets statiques
-├── backend/                 # Application Django
-│   ├── kakatar_academy/    # Configuration principale
-│   ├── users/              # Gestion des utilisateurs
-│   ├── courses/            # Gestion des cours
-│   ├── payments/           # Système de paiement
-│   ├── sessions_live/      # Sessions en direct
-│   ├── marketplace/        # Marketplace
-│   ├── analytics/          # Analytics et reporting
-│   └── ai_services/        # Services IA
-└── docs/                   # Documentation
-```
-
-## 🧪 Tests
-
-### Backend
 ```bash
-cd backend
-python manage.py test
+cd backend && DEBUG=True python manage.py test   # 16 tests : accès, paiements, certificats, auth
+npm run build                                    # typecheck + build
 ```
 
-### Frontend
+## Paiements
+
+Le serveur ne fait jamais confiance au navigateur ni au contenu brut d'un webhook :
+l'état d'un paiement est toujours **relu auprès de Wave / PayDunya** (montant compris) avant d'ouvrir l'accès.
+La finalisation est idempotente (page de retour + webhook peuvent arriver tous les deux).
+
+| Passerelle | À configurer dans `.env` | Webhook à déclarer chez la passerelle |
+|---|---|---|
+| Wave | `WAVE_API_KEY`, `WAVE_WEBHOOK_SECRET` | `https://<domaine>/api/v1/payments/webhooks/wave/` |
+| PayDunya | `PAYDUNYA_MASTER_KEY`, `PAYDUNYA_PRIVATE_KEY`, `PAYDUNYA_TOKEN`, `PAYDUNYA_MODE` | envoyé automatiquement (`callback_url`) |
+
+Un moyen de paiement sans clés est simplement masqué sur le site.
+Tester d'abord PayDunya en `PAYDUNYA_MODE=test`, et Wave avec un petit montant réel.
+
+## Mise en ligne (Docker)
+
 ```bash
-npm run test
-npm run test:coverage
+cp .env.example .env      # remplir SECRET_KEY, DB_PASSWORD, domaines, clés de paiement
+docker compose up -d --build
+docker compose exec backend python manage.py seed_kakatar_courses --instructor VOTRE@EMAIL
 ```
 
-## 🚀 Déploiement
+Trois conteneurs : PostgreSQL, Django (Gunicorn), Nginx (sert le React et relaie `/api` et `/admin`).
+Prévoir le HTTPS devant (Caddy, Traefik ou Cloudflare) : Wave exige des URLs de retour en HTTPS.
 
-### Production
-```bash
-# Backend
-cd backend
-python manage.py collectstatic
-python manage.py migrate
-gunicorn kakatar_academy.wsgi:application
+## Ajouter le contenu des cours
 
-# Frontend
-npm run build
-# Servir les fichiers build avec nginx
+`seed_kakatar_courses` crée les 3 formations (Infographie, HTML/CSS/PHP, Initiation à l'informatique)
+avec modules et leçons. Le texte des leçons est un **emplacement à remplir** :
+admin Django → Modules → ouvrir un module → éditer chaque leçon (texte, URL vidéo, statut « Publiée »).
+Sans `--publish`, cours et leçons restent en brouillon, invisibles du public.
+
+## Structure
+
 ```
-
-### Docker (optionnel)
-```bash
-docker-compose up -d
+backend/
+  users/      comptes, JWT, réinitialisation du mot de passe
+  courses/    cours, modules, leçons, inscriptions, progression, certificats (certificates.py)
+  payments/   gateways.py (Wave, PayDunya), services.py (checkout, finalisation), webhooks
+src/
+  lib/api.ts  client API + JWT
+  pages/      Catalog, CourseDetail, Learn, PaymentReturn, MyLearning, Teach, Auth, VerifyCertificate
 ```
-
-## 📚 API Documentation
-
-L'API est documentée avec GraphQL et REST :
-
-- **GraphQL** : `/graphql/`
-- **REST API** : `/api/v1/`
-- **Admin Django** : `/admin/`
-
-## 🤝 Contribution
-
-1. Fork le projet
-2. Créer une branche feature (`git checkout -b feature/AmazingFeature`)
-3. Commit les changements (`git commit -m 'Add some AmazingFeature'`)
-4. Push vers la branche (`git push origin feature/AmazingFeature`)
-5. Ouvrir une Pull Request
-
-## 📄 Licence
-
-Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails.
-
-## 🆘 Support
-
-- **Documentation** : [docs.kakataracademy.com](https://docs.kakataracademy.com)
-- **Issues** : [GitHub Issues](https://github.com/votre-username/kakatar-academy/issues)
-- **Email** : support@kakataracademy.com
-
-## 🗺️ Roadmap
-
-### Phase 1 (MVP) - ✅ Complété
-- [x] Authentification et gestion des utilisateurs
-- [x] Création et gestion des cours
-- [x] Système de paiement de base
-- [x] Interface utilisateur moderne
-
-### Phase 2 - 🚧 En cours
-- [ ] Intégration des gateways de paiement
-- [ ] Système de streaming vidéo
-- [ ] Services IA de base
-- [ ] Marketplace
-
-### Phase 3 - 📋 Planifié
-- [ ] Sessions en direct et collaboration
-- [ ] Analytics avancés
-- [ ] Applications mobiles
-- [ ] Intégrations tierces
-
----
-
-**Développé avec ❤️ par l'équipe Kakatar Academy** 

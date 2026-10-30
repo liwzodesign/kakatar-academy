@@ -1,7 +1,6 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.core.validators import MinValueValidator, MaxValueValidator
-from django.contrib.postgres.fields import ArrayField
 import uuid
 from django.utils import timezone
 
@@ -73,7 +72,7 @@ class Course(models.Model):
     short_description = models.CharField(_('description courte'), max_length=500, blank=True)
     
     # Métadonnées
-    thumbnail = models.ImageField(_('miniature'), upload_to='courses/thumbnails/')
+    thumbnail = models.ImageField(_('miniature'), upload_to='courses/thumbnails/', blank=True)
     cover_image = models.ImageField(_('image de couverture'), upload_to='courses/covers/', blank=True)
     preview_video = models.URLField(_('vidéo de prévisualisation'), blank=True)
     
@@ -99,12 +98,7 @@ class Course(models.Model):
     
     # Contenu
     language = models.CharField(_('langue'), max_length=10, default='fr')
-    tags = ArrayField(
-        models.CharField(max_length=50),
-        blank=True,
-        default=list,
-        verbose_name=_('tags')
-    )
+    tags = models.JSONField(_('tags'), blank=True, default=list)
     
     # Prix et monétisation
     price = models.DecimalField(
@@ -178,12 +172,7 @@ class Course(models.Model):
     # SEO et marketing
     meta_title = models.CharField(_('titre SEO'), max_length=60, blank=True)
     meta_description = models.CharField(_('description SEO'), max_length=160, blank=True)
-    keywords = ArrayField(
-        models.CharField(max_length=50),
-        blank=True,
-        default=list,
-        verbose_name=_('mots-clés SEO')
-    )
+    keywords = models.JSONField(_('mots-clés SEO'), blank=True, default=list)
     
     # Métadonnées
     created_at = models.DateTimeField(_('date de création'), auto_now_add=True)
@@ -228,22 +217,34 @@ class Course(models.Model):
             return True
         return self.students_count < self.max_students
     
+    def is_free(self):
+        return self.type == self.Type.FREE or self.price == 0
+
+    def published_lessons(self):
+        return Lesson.objects.filter(module__course=self, status=Lesson.Status.PUBLISHED)
+
     def update_stats(self):
-        """Met à jour les statistiques du cours"""
-        from .models import Module, Lesson
-        
-        # Calculer la durée totale
-        total_duration = 0
+        """Met à jour durée totale (minutes) et nombre de leçons publiées"""
+        total_minutes = 0
         lessons_count = 0
-        
-        for module in self.modules.all():
-            for lesson in module.lessons.all():
-                total_duration += lesson.duration
-                lessons_count += 1
-        
-        self.duration = total_duration
+        for lesson in self.published_lessons():
+            total_minutes += lesson.get_minutes()
+            lessons_count += 1
+        self.duration = total_minutes
         self.lessons_count = lessons_count
         self.save(update_fields=['duration', 'lessons_count'])
+
+    def update_rating(self):
+        """Recalcule la note moyenne à partir des avis"""
+        from django.db.models import Avg, Count
+        agg = self.reviews.aggregate(avg=Avg('rating'), count=Count('id'))
+        self.rating_average = round(agg['avg'] or 0, 2)
+        self.rating_count = agg['count']
+        self.save(update_fields=['rating_average', 'rating_count'])
+
+    def update_students_count(self):
+        self.students_count = self.enrollments.exclude(status='CANCELLED').count()
+        self.save(update_fields=['students_count'])
 
 class Module(models.Model):
     """Module d'un cours"""
@@ -277,7 +278,7 @@ class Module(models.Model):
         return self.lessons.count()
     
     def get_duration(self):
-        return sum(lesson.duration for lesson in self.lessons.all())
+        return sum(lesson.get_minutes() for lesson in self.lessons.filter(status='PUBLISHED'))
 
 class Lesson(models.Model):
     """Leçon d'un module"""
@@ -350,6 +351,12 @@ class Lesson(models.Model):
     def __str__(self):
         return f"{self.module.title} - {self.title}"
     
+    def get_minutes(self):
+        """Durée en minutes (vidéo si renseignée, sinon estimation)"""
+        if self.video_duration:
+            return max(1, round(self.video_duration / 60))
+        return self.estimated_duration
+
     def get_duration_display(self):
         """Retourne la durée formatée"""
         if self.video_duration:
@@ -417,6 +424,7 @@ class Enrollment(models.Model):
     last_accessed = models.DateTimeField(_('dernier accès'), auto_now=True)
     
     # Certificat
+    certificate_code = models.CharField(_('code du certificat'), max_length=20, blank=True, db_index=True)
     certificate_issued = models.BooleanField(_('certificat délivré'), default=False)
     certificate_issued_at = models.DateTimeField(_('date de délivrance du certificat'), null=True, blank=True)
     
@@ -429,19 +437,35 @@ class Enrollment(models.Model):
     def __str__(self):
         return f"{self.user.get_full_name()} - {self.course.title}"
     
+    def has_access(self):
+        return self.status in (self.Status.ACTIVE, self.Status.COMPLETED)
+
     def update_progress(self):
-        """Met à jour la progression de l'inscription"""
-        total_lessons = self.course.lessons_count
-        if total_lessons > 0:
-            completed_count = self.completed_lessons.count()
-            self.progress = (completed_count / total_lessons) * 100
-            
-            # Marquer comme terminé si 100%
-            if self.progress >= 100 and self.status != self.Status.COMPLETED:
-                self.status = self.Status.COMPLETED
-                self.completed_at = timezone.now()
-            
-            self.save(update_fields=['progress', 'status', 'completed_at'])
+        """Recalcule la progression sur les leçons publiées ; délivre le certificat à 100 %"""
+        published = self.course.published_lessons()
+        total = published.count()
+        if total == 0:
+            return
+        done = self.completed_lessons.filter(id__in=published.values('id')).count()
+        self.progress = round(done * 100 / total, 2)
+        fields = ['progress']
+        if done >= total and self.status == self.Status.ACTIVE:
+            self.status = self.Status.COMPLETED
+            self.completed_at = timezone.now()
+            fields += ['status', 'completed_at']
+            if self.course.certificate_available and not self.certificate_issued:
+                self.issue_certificate(save=False)
+                fields += ['certificate_issued', 'certificate_issued_at', 'certificate_code']
+        self.save(update_fields=fields)
+
+    def issue_certificate(self, save=True):
+        import secrets
+        self.certificate_issued = True
+        self.certificate_issued_at = timezone.now()
+        if not self.certificate_code:
+            self.certificate_code = 'KA-' + secrets.token_hex(5).upper()
+        if save:
+            self.save(update_fields=['certificate_issued', 'certificate_issued_at', 'certificate_code'])
 
 class CourseReview(models.Model):
     """Avis sur un cours"""
@@ -483,12 +507,9 @@ class CourseReview(models.Model):
         return f"{self.user.get_full_name()} - {self.course.title} ({self.rating}/5)"
     
     def save(self, *args, **kwargs):
-        """Sauvegarde et met à jour les statistiques du cours"""
-        is_new = self.pk is None
+        """Sauvegarde et met à jour la note moyenne du cours"""
+        is_new = self._state.adding
         super().save(*args, **kwargs)
-        
+        self.course.update_rating()
         if is_new:
-            # Mettre à jour la note moyenne du cours
-            self.course.update_rating()
-            # Mettre à jour la note moyenne de l'instructeur
             self.course.instructor.update_rating(self.rating) 

@@ -9,7 +9,11 @@ from django.utils import timezone
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.conf import settings
-import uuid
+from django.contrib.auth.tokens import default_token_generator
+from django.core.exceptions import ValidationError
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from rest_framework.throttling import ScopedRateThrottle
 
 from .models import User, UserProfile, UserVerification
 from .serializers import (
@@ -52,27 +56,21 @@ class UserRegistrationView(generics.CreateAPIView):
     
     def send_welcome_email(self, user):
         """Envoie l'email de bienvenue"""
-        try:
-            subject = 'Bienvenue sur Kakatar Academy ! 🎓'
-            message = render_to_string('emails/welcome.html', {
-                'user': user,
-                'site_name': 'Kakatar Academy'
-            })
-            
-            send_mail(
-                subject=subject,
-                message=message,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                html_message=message,
-                fail_silently=True
-            )
-        except Exception as e:
-            print(f"Erreur envoi email: {e}")
+        send_mail(
+            subject='Bienvenue sur Kakatar Academy !',
+            message=(f"Bonjour {user.get_short_name()},\n\n"
+                     "Votre compte Kakatar Academy est prêt. Bonne formation !\n\n"
+                     f"{settings.FRONTEND_URL}"),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=True,
+        )
 
 class UserLoginView(APIView):
     """Vue pour la connexion des utilisateurs"""
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
     
     def post(self, request):
         serializer = LoginSerializer(data=request.data, context={'request': request})
@@ -121,7 +119,7 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
         return self.request.user
     
     def get_serializer_class(self):
-        if self.request.method == 'PUT':
+        if self.request.method in ('PUT', 'PATCH'):
             return UserUpdateSerializer
         return UserSerializer
 
@@ -155,89 +153,56 @@ class PasswordChangeView(APIView):
         return Response({'message': 'Mot de passe modifié avec succès'})
 
 class PasswordResetView(APIView):
-    """Vue pour demander la réinitialisation du mot de passe"""
+    """Demande de réinitialisation : envoie un lien uid + token signé (valable PASSWORD_RESET_TIMEOUT)."""
     permission_classes = [permissions.AllowAny]
-    
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
+
     def post(self, request):
         serializer = PasswordResetSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        email = serializer.validated_data['email']
-        try:
-            user = User.objects.get(email=email)
-            
-            # Générer un token unique
-            token = str(uuid.uuid4())
-            
-            # Stocker le token dans le cache (en production, utiliser Redis)
-            # cache.set(f"password_reset_{token}", user.id, timeout=3600)
-            
-            # Envoyer l'email de réinitialisation
-            self.send_reset_email(user, token)
-            
-            return Response({'message': 'Email de réinitialisation envoyé'})
-            
-        except User.DoesNotExist:
-            # Ne pas révéler si l'email existe ou non
-            return Response({'message': 'Email de réinitialisation envoyé'})
-    
-    def send_reset_email(self, user, token):
-        """Envoie l'email de réinitialisation"""
-        try:
-            reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
-            
-            subject = 'Réinitialisation de votre mot de passe'
-            message = render_to_string('emails/password_reset.html', {
-                'user': user,
-                'reset_url': reset_url,
-                'site_name': 'Kakatar Academy'
-            })
-            
+        email = serializer.validated_data['email'].lower()
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        if user:
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            reset_url = f"{settings.FRONTEND_URL}/reinitialiser-mot-de-passe?uid={uid}&token={token}"
             send_mail(
-                subject=subject,
-                message=message,
+                subject='Réinitialisation de votre mot de passe - Kakatar Academy',
+                message=(
+                    f"Bonjour {user.get_short_name()},\n\n"
+                    f"Pour choisir un nouveau mot de passe, ouvrez ce lien :\n{reset_url}\n\n"
+                    "Si vous n'êtes pas à l'origine de cette demande, ignorez cet email."
+                ),
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[user.email],
-                html_message=message,
-                fail_silently=True
+                fail_silently=True,
             )
-        except Exception as e:
-            print(f"Erreur envoi email reset: {e}")
+        # Même réponse que l'email existe ou non
+        return Response({'message': 'Si un compte existe, un email de réinitialisation a été envoyé.'})
+
 
 class PasswordResetConfirmView(APIView):
-    """Vue pour confirmer la réinitialisation du mot de passe"""
+    """Confirme la réinitialisation avec uid + token."""
     permission_classes = [permissions.AllowAny]
-    
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
+
     def post(self, request):
         serializer = PasswordResetConfirmSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        token = serializer.validated_data['token']
-        new_password = serializer.validated_data['new_password']
-        
-        # Récupérer l'utilisateur depuis le cache
-        # user_id = cache.get(f"password_reset_{token}")
-        
-        # Pour l'instant, simulation
-        user_id = None
-        
-        if not user_id:
-            return Response({'error': 'Token invalide ou expiré'}, 
-                          status=status.HTTP_400_BAD_REQUEST)
-        
+        data = serializer.validated_data
         try:
-            user = User.objects.get(id=user_id)
-            user.set_password(new_password)
-            user.save()
-            
-            # Supprimer le token du cache
-            # cache.delete(f"password_reset_{token}")
-            
-            return Response({'message': 'Mot de passe réinitialisé avec succès'})
-            
-        except User.DoesNotExist:
-            return Response({'error': 'Utilisateur non trouvé'}, 
-                          status=status.HTTP_404_NOT_FOUND)
+            user_id = force_str(urlsafe_base64_decode(data['uid']))
+            user = User.objects.get(pk=user_id)
+        except (User.DoesNotExist, ValueError, TypeError, OverflowError, ValidationError):
+            user = None
+        if user is None or not default_token_generator.check_token(user, data['token']):
+            return Response({'error': 'Lien invalide ou expiré'}, status=status.HTTP_400_BAD_REQUEST)
+        user.set_password(data['new_password'])
+        user.save(update_fields=['password'])
+        return Response({'message': 'Mot de passe réinitialisé avec succès'})
+
 
 class UserVerificationCreateView(generics.CreateAPIView):
     """Vue pour créer une demande de vérification"""
