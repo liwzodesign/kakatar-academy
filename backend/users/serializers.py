@@ -47,7 +47,7 @@ class UserSerializer(serializers.ModelSerializer):
             'profile', 'full_name'
         ]
         read_only_fields = [
-            'id', 'verification_status', 'total_courses_created',
+            'id', 'email', 'role', 'verification_status', 'total_courses_created',
             'total_students', 'total_revenue', 'rating_average',
             'rating_count', 'is_verified', 'last_activity', 'date_joined'
         ]
@@ -72,19 +72,32 @@ class UserCreateSerializer(serializers.ModelSerializer):
             'country', 'city'
         ]
     
+    # Seuls ces rôles peuvent être choisis à l'inscription (jamais ADMIN/MODERATEUR)
+    SELF_SERVICE_ROLES = (User.Role.ETUDIANT, User.Role.FORMATEUR)
+
+    def validate_email(self, value):
+        value = value.lower()
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("Un compte existe déjà avec cet email.")
+        return value
+
+    def validate_role(self, value):
+        if value not in self.SELF_SERVICE_ROLES:
+            raise serializers.ValidationError("Rôle non autorisé à l'inscription.")
+        return value
+
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
             raise serializers.ValidationError("Les mots de passe ne correspondent pas.")
         return attrs
-    
+
     def create(self, validated_data):
         validated_data.pop('password_confirm')
-        user = User.objects.create_user(**validated_data)
-        
-        # Créer automatiquement le profil utilisateur
-        UserProfile.objects.create(user=user)
-        
-        return user
+        password = validated_data.pop('password')
+        if not validated_data.get('username'):
+            validated_data['username'] = validated_data['email']
+        # Le profil est créé par le signal post_save
+        return User.objects.create_user(password=password, **validated_data)
 
 class UserUpdateSerializer(serializers.ModelSerializer):
     """Sérialiseur pour la mise à jour des utilisateurs"""
@@ -120,7 +133,7 @@ class LoginSerializer(serializers.Serializer):
         
         if email and password:
             user = authenticate(request=self.context.get('request'),
-                              username=email, password=password)
+                              username=email.lower(), password=password)
             if not user:
                 raise serializers.ValidationError(
                     'Impossible de se connecter avec les identifiants fournis.'
@@ -155,14 +168,15 @@ class PasswordResetSerializer(serializers.Serializer):
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
     """Sérialiseur pour la confirmation de réinitialisation de mot de passe"""
-    
+
+    uid = serializers.CharField()
     token = serializers.CharField()
     new_password = serializers.CharField(validators=[validate_password])
     new_password_confirm = serializers.CharField()
-    
+
     def validate(self, attrs):
         if attrs['new_password'] != attrs['new_password_confirm']:
-            raise serializers.ValidationError("Les nouveaux mots de passe ne correspondent pas.")
+            raise serializers.ValidationError("Les mots de passe ne correspondent pas.")
         return attrs
 
 class UserVerificationSerializer(serializers.ModelSerializer):

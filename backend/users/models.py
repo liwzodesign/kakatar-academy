@@ -1,8 +1,37 @@
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 from django.core.validators import RegexValidator
 from django.utils.translation import gettext_lazy as _
 import uuid
+
+class UserManager(BaseUserManager):
+    """Gestionnaire : l'email sert d'identifiant de connexion."""
+
+    use_in_migrations = True
+
+    def _create_user(self, email, password, **extra_fields):
+        if not email:
+            raise ValueError("L'adresse email est obligatoire")
+        email = self.normalize_email(email).lower()
+        extra_fields.setdefault('username', email)
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_user(self, email, password=None, **extra_fields):
+        extra_fields.setdefault('is_staff', False)
+        extra_fields.setdefault('is_superuser', False)
+        return self._create_user(email, password, **extra_fields)
+
+    def create_superuser(self, email, password=None, **extra_fields):
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+        extra_fields.setdefault('role', 'ADMIN')
+        extra_fields.setdefault('verification_status', 'VERIFIED')
+        extra_fields.setdefault('is_verified', True)
+        return self._create_user(email, password, **extra_fields)
+
 
 class User(AbstractUser):
     """
@@ -101,6 +130,11 @@ class User(AbstractUser):
     is_staff = models.BooleanField(_('membre du staff'), default=False)
     date_joined = models.DateTimeField(_('date d\'inscription'), auto_now_add=True)
     
+    objects = UserManager()
+
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['first_name', 'last_name']
+
     class Meta:
         verbose_name = _('utilisateur')
         verbose_name_plural = _('utilisateurs')
@@ -139,18 +173,22 @@ class User(AbstractUser):
     
     def can_create_courses(self):
         """Vérifie si l'utilisateur peut créer des cours"""
+        if self.role == self.Role.ADMIN or self.is_superuser:
+            return True
         return self.is_formateur() and self.verification_status == self.VerificationStatus.VERIFIED
     
     def get_avatar_url(self):
         """Retourne l'URL de l'avatar ou une image par défaut"""
         if self.avatar:
             return self.avatar.url
-        return f"https://ui-avatars.com/api/?name={self.get_full_name()}&background=random"
+        from urllib.parse import quote
+        return f"https://ui-avatars.com/api/?name={quote(self.get_full_name())}&background=random"
     
     def update_rating(self, new_rating):
         """Met à jour la note moyenne de l'utilisateur"""
         if self.rating_count == 0:
             self.rating_average = new_rating
+            self.rating_count = 1
         else:
             total_rating = (self.rating_average * self.rating_count) + new_rating
             self.rating_count += 1

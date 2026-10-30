@@ -51,15 +51,13 @@ class IsVerifiedFormateur(permissions.BasePermission):
     Permission pour les formateurs vérifiés uniquement
     """
     
+    message = "Seuls les formateurs vérifiés peuvent créer des cours."
+
     def has_permission(self, request, view):
-        return (request.user and request.user.is_authenticated and 
-                request.user.role in ['FORMATEUR', 'ADMIN'] and 
-                request.user.verification_status == 'VERIFIED')
-    
+        return bool(request.user and request.user.is_authenticated and request.user.can_create_courses())
+
     def has_object_permission(self, request, view, obj):
-        return (request.user and request.user.is_authenticated and 
-                request.user.role in ['FORMATEUR', 'ADMIN'] and 
-                request.user.verification_status == 'VERIFIED')
+        return self.has_permission(request, view)
 
 class IsEnrolledStudent(permissions.BasePermission):
     """

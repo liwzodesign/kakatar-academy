@@ -76,6 +76,7 @@ class Payment(models.Model):
         max_length=255,
         blank=True
     )
+    checkout_url = models.URLField(_('URL de paiement'), max_length=500, blank=True)
     gateway_response = models.JSONField(
         _('réponse du gateway'),
         default=dict,
