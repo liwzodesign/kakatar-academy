@@ -1,59 +1,40 @@
-#!/bin/bash
-
-# Script d'entrée Docker pour Kakatar Academy Backend
-
+#!/bin/sh
+# Point d'entrée des conteneurs backend / celery.
+# RUN_MIGRATIONS=1 (service « backend » uniquement) applique les migrations et collecte les statiques.
 set -e
 
-# Attendre que la base de données soit prête
 echo "Attente de la base de données..."
-while ! nc -z $DB_HOST $DB_PORT; do
-  sleep 1
-done
-echo "Base de données prête!"
+python - <<'PY'
+import os, sys, time
+import django
+django.setup()
+from django.db import connection
+for attempt in range(60):
+    try:
+        connection.ensure_connection()
+        sys.exit(0)
+    except Exception as exc:  # base pas encore prête
+        print(f"  ({attempt + 1}/60) {exc.__class__.__name__}, nouvelle tentative...")
+        time.sleep(2)
+sys.exit("Base de données injoignable")
+PY
 
-# Attendre que Redis soit prêt
-echo "Attente de Redis..."
-while ! nc -z redis 6379; do
-  sleep 1
-done
-echo "Redis prêt!"
+if [ "${RUN_MIGRATIONS:-0}" = "1" ]; then
+  echo "Migrations..."
+  python manage.py migrate --noinput
+  python manage.py collectstatic --noinput
 
-# Attendre qu'Elasticsearch soit prêt
-echo "Attente d'Elasticsearch..."
-while ! curl -s http://elasticsearch:9200 > /dev/null; do
-  sleep 5
-done
-echo "Elasticsearch prêt!"
+  # Superutilisateur créé uniquement si les variables sont fournies (jamais de mot de passe par défaut)
+  if [ -n "$DJANGO_SUPERUSER_EMAIL" ] && [ -n "$DJANGO_SUPERUSER_PASSWORD" ]; then
+    python manage.py shell -c "
+from users.models import User
+import os
+email = os.environ['DJANGO_SUPERUSER_EMAIL']
+if not User.objects.filter(email=email).exists():
+    User.objects.create_superuser(email=email, password=os.environ['DJANGO_SUPERUSER_PASSWORD'], first_name='Admin', last_name='Kakatar')
+    print('Superutilisateur créé :', email)
+"
+  fi
+fi
 
-# Appliquer les migrations
-echo "Application des migrations..."
-python manage.py migrate --noinput
-
-# Collecter les fichiers statiques
-echo "Collecte des fichiers statiques..."
-python manage.py collectstatic --noinput
-
-# Créer un superuser si nécessaire
-echo "Vérification du superuser..."
-python manage.py shell << EOF
-from django.contrib.auth import get_user_model
-User = get_user_model()
-if not User.objects.filter(is_superuser=True).exists():
-    User.objects.create_superuser(
-        'admin@kakataracademy.com',
-        'admin123',
-        first_name='Admin',
-        last_name='Kakatar'
-    )
-    print('Superuser créé: admin@kakataracademy.com / admin123')
-else:
-    print('Superuser existe déjà')
-EOF
-
-# Indexer Elasticsearch si nécessaire
-echo "Indexation Elasticsearch..."
-python manage.py search_index --rebuild --noinput
-
-# Démarrer l'application
-echo "Démarrage de l'application..."
-exec "$@" 
+exec "$@"

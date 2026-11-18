@@ -1,161 +1,210 @@
-import React, { useState } from 'react';
-import { Menu, X, Search, User, BookOpen, Bell, LogOut, Settings } from 'lucide-react';
-import { useAuth } from '../../hooks/useAuth';
+import React, { useEffect, useRef, useState } from 'react';
+import { Menu, Search, User, LogOut, Settings, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '../../hooks/useAuth';
+import { navigate, useLocation } from '../../lib/router';
+import { NotificationBell } from './NotificationBell';
+import { Logo } from '../UI/Logo';
+import { Avatar } from '../UI';
 
 interface HeaderProps {
   onMenuToggle: () => void;
-  showSearch?: boolean;
   onSearch?: (term: string) => void;
+  onLogin?: () => void;
+  onRegister?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onMenuToggle, showSearch = true, onSearch }) => {
+const ROLE_LABELS: Record<string, [string, string]> = {
+  ETUDIANT: ['Étudiant', 'bg-primary-50 text-primary-700'],
+  FORMATEUR: ['Formateur', 'bg-secondary-50 text-secondary-700'],
+  ADMIN: ['Administrateur', 'bg-sun-100 text-sun-800'],
+  MODERATEUR: ['Modérateur', 'bg-gray-100 text-gray-700'],
+  PARTENAIRE: ['Partenaire', 'bg-gray-100 text-gray-700'],
+};
+
+const PUBLIC_LINKS = [
+  { path: '/catalog', label: 'Cours' },
+  { path: '/paths', label: 'Parcours' },
+  { path: '/sessions', label: 'Sessions en direct' },
+  { path: '/marketplace', label: 'Ressources' },
+];
+
+export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onSearch, onLogin, onRegister }) => {
   const { authState, logout } = useAuth();
+  const { path } = useLocation();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [mobileSearch, setMobileSearch] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+  const profileRef = useRef<HTMLDivElement>(null);
+  const user = authState.user;
+
+  // Raccourci « / » ou Ctrl/⌘+K pour rechercher
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName);
+      if ((e.key === 'k' && (e.ctrlKey || e.metaKey)) || (e.key === '/' && !typing)) {
+        e.preventDefault();
+        setMobileSearch(true);
+        setTimeout(() => searchRef.current?.focus(), 0);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  useEffect(() => {
+    if (!isProfileOpen) return;
+    const close = (e: MouseEvent) => profileRef.current && !profileRef.current.contains(e.target as Node) && setIsProfileOpen(false);
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [isProfileOpen]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    onSearch?.(searchTerm);
+    if (!searchTerm.trim()) return;
+    onSearch?.(searchTerm.trim());
+    setMobileSearch(false);
+    searchRef.current?.blur();
   };
 
-  const getRoleLabel = (role: string) => {
-    const labels = {
-      'ETUDIANT': 'Étudiant',
-      'FORMATEUR': 'Formateur',
-      'ADMIN': 'Administrateur'
-    };
-    return labels[role as keyof typeof labels] || role;
+  const go = (to: string) => {
+    navigate(to);
+    setIsProfileOpen(false);
   };
 
-  const getRoleBadgeColor = (role: string) => {
-    const colors = {
-      'ETUDIANT': 'bg-blue-100 text-blue-800',
-      'FORMATEUR': 'bg-green-100 text-green-800',
-      'ADMIN': 'bg-purple-100 text-purple-800'
-    };
-    return colors[role as keyof typeof colors] || 'bg-gray-100 text-gray-800';
-  };
+  const searchForm = (
+    <form onSubmit={handleSearch} role="search" className="relative w-full">
+      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+      <input
+        ref={searchRef}
+        type="search"
+        aria-label="Rechercher un cours ou un formateur"
+        placeholder="Rechercher un cours, un formateur…"
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        className="w-full pl-10 pr-14 py-2.5 bg-gray-100 border border-transparent rounded-xl text-sm placeholder-gray-500 focus:bg-white focus:border-primary-200 focus:ring-4 focus:ring-primary-100 outline-none transition"
+      />
+      <kbd className="hidden lg:flex absolute right-3 top-1/2 -translate-y-1/2 items-center text-[11px] font-medium text-gray-400 border border-gray-200 rounded px-1.5 py-0.5 bg-white">
+        Ctrl K
+      </kbd>
+    </form>
+  );
 
   return (
-    <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
-          {/* Logo et navigation */}
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={onMenuToggle}
-              className="lg:hidden p-2 rounded-md hover:bg-gray-100 transition-colors"
-            >
-              <Menu className="w-6 h-6 text-gray-600" />
+    <header className="bg-white/90 backdrop-blur-md border-b border-gray-200/70 sticky top-0 z-40">
+      <div className="container-page">
+        <div className="flex items-center h-16 gap-4">
+          {authState.isAuthenticated && (
+            <button onClick={onMenuToggle} aria-label="Ouvrir le menu" className="lg:hidden -ml-2 p-2 rounded-lg hover:bg-gray-100">
+              <Menu className="w-6 h-6 text-gray-700" />
             </button>
-            
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
-                <BookOpen className="w-5 h-5 text-white" />
-              </div>
-              <div className="hidden sm:block">
-                <h1 className="text-xl font-bold text-gray-900">Kakatar Academy</h1>
-              </div>
-            </div>
-          </div>
-
-          {/* Barre de recherche */}
-          {showSearch && (
-            <div className="flex-1 max-w-2xl mx-8">
-              <form onSubmit={handleSearch} className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Search className="h-5 w-5 text-gray-400" />
-                </div>
-                <input
-                  type="text"
-                  placeholder="Rechercher un cours, formateur..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-                />
-              </form>
-            </div>
           )}
 
-          {/* Actions utilisateur */}
-          <div className="flex items-center space-x-4">
-            {authState.isAuthenticated ? (
-              <>
-                <button className="p-2 text-gray-400 hover:text-gray-600 transition-colors relative">
-                  <Bell className="w-6 h-6" />
-                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></span>
-                </button>
+          <button onClick={() => navigate('/')} aria-label="Accueil Kakatar Academy" className={`flex-shrink-0 ${authState.isAuthenticated ? 'lg:hidden' : ''}`}>
+            <Logo className="h-9 sm:h-10" />
+          </button>
 
-                <div className="relative">
+          {!authState.isAuthenticated && (
+            <nav className="hidden md:flex items-center gap-1 ml-4" aria-label="Navigation principale">
+              {PUBLIC_LINKS.map((l) => (
+                <button
+                  key={l.path}
+                  onClick={() => navigate(l.path)}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${path.startsWith(l.path) ? 'text-primary-700 bg-primary-50' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}
+                >
+                  {l.label}
+                </button>
+              ))}
+            </nav>
+          )}
+
+          <div className="flex-1 max-w-xl mx-auto hidden sm:block">{searchForm}</div>
+          <div className="flex-1 sm:hidden" />
+
+          <div className="flex items-center gap-1 sm:gap-2">
+            <button onClick={() => setMobileSearch(true)} aria-label="Rechercher" className="sm:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100">
+              <Search className="w-5 h-5" />
+            </button>
+
+            {authState.isAuthenticated && user ? (
+              <>
+                <NotificationBell />
+                <div className="relative" ref={profileRef}>
                   <button
                     onClick={() => setIsProfileOpen(!isProfileOpen)}
-                    className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-50 transition-colors"
+                    aria-haspopup="menu"
+                    aria-expanded={isProfileOpen}
+                    className="flex items-center gap-3 p-1.5 rounded-xl hover:bg-gray-100 transition-colors"
                   >
-                    <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
-                      <User className="w-4 h-4 text-white" />
-                    </div>
-                    <div className="hidden md:block text-left">
-                      <p className="text-sm font-medium text-gray-900">{authState.user?.name}</p>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getRoleBadgeColor(authState.user?.role || '')}`}>
-                        {getRoleLabel(authState.user?.role || '')}
+                    <Avatar name={user.name} src={user.avatar} size="w-9 h-9" />
+                    <span className="hidden md:block text-left leading-tight">
+                      <span className="block text-sm font-semibold text-gray-900 max-w-[10rem] truncate">{user.name}</span>
+                      <span className={`inline-block mt-0.5 px-1.5 rounded text-[11px] font-semibold ${ROLE_LABELS[user.role]?.[1] || ''}`}>
+                        {ROLE_LABELS[user.role]?.[0] || user.role}
                       </span>
-                    </div>
+                    </span>
                   </button>
 
                   <AnimatePresence>
                     {isProfileOpen && (
                       <motion.div
-                        initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                        role="menu"
+                        initial={{ opacity: 0, scale: 0.97, y: -6 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                        className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-2"
+                        exit={{ opacity: 0, scale: 0.97, y: -6 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-lift border border-gray-100 p-2"
                       >
-                        <div className="px-4 py-2 border-b border-gray-100">
-                          <p className="text-sm font-medium text-gray-900">{authState.user?.name}</p>
-                          <p className="text-xs text-gray-500">{authState.user?.email}</p>
+                        <div className="px-3 py-2.5 mb-1">
+                          <p className="text-sm font-semibold text-gray-900 truncate">{user.name}</p>
+                          <p className="text-xs text-gray-500 truncate">{user.email}</p>
                         </div>
-                        
-                        <button className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2">
-                          <User className="w-4 h-4" />
-                          <span>Mon profil</span>
+                        <button role="menuitem" onClick={() => go('/settings')} className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3">
+                          <User className="w-4 h-4 text-gray-400" /> Mon profil
                         </button>
-                        
-                        <button className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2">
-                          <Settings className="w-4 h-4" />
-                          <span>Paramètres</span>
+                        <button role="menuitem" onClick={() => go('/settings?tab=security')} className="w-full text-left px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3">
+                          <Settings className="w-4 h-4 text-gray-400" /> Paramètres & sécurité
                         </button>
-                        
-                        <div className="border-t border-gray-100 mt-2">
-                          <button 
-                            onClick={() => {
-                              logout();
-                              setIsProfileOpen(false);
-                            }}
-                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
-                          >
-                            <LogOut className="w-4 h-4" />
-                            <span>Se déconnecter</span>
-                          </button>
-                        </div>
+                        <div className="border-t border-gray-100 my-1" />
+                        <button
+                          role="menuitem"
+                          onClick={() => { logout(); go('/'); }}
+                          className="w-full text-left px-3 py-2 rounded-lg text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
+                        >
+                          <LogOut className="w-4 h-4" /> Se déconnecter
+                        </button>
                       </motion.div>
                     )}
                   </AnimatePresence>
                 </div>
               </>
             ) : (
-              <div className="flex items-center space-x-3">
-                <button className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">
+              <>
+                <button onClick={onLogin} className="hidden sm:block px-3 py-2 text-sm font-semibold text-gray-700 hover:text-primary-700 rounded-lg">
                   Se connecter
                 </button>
-                <button className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
-                  S'inscrire
+                <button onClick={onLogin} className="sm:hidden bg-primary-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold">
+                  Connexion
                 </button>
-              </div>
+                <button onClick={onRegister} className="hidden sm:block bg-primary-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary-800 shadow-sm transition-colors">
+                  Commencer gratuitement
+                </button>
+              </>
             )}
           </div>
         </div>
       </div>
+
+      {/* Recherche plein écran sur mobile */}
+      <AnimatePresence>
+        {mobileSearch && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="sm:hidden absolute inset-x-0 top-0 h-16 bg-white flex items-center gap-2 px-4 border-b">
+            {searchForm}
+            <button onClick={() => setMobileSearch(false)} aria-label="Fermer la recherche" className="p-2 text-gray-500"><X className="w-5 h-5" /></button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </header>
   );
 };

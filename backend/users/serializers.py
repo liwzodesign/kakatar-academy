@@ -44,12 +44,14 @@ class UserSerializer(serializers.ModelSerializer):
             'total_courses_created', 'total_students', 'total_revenue',
             'rating_average', 'rating_count', 'is_verified',
             'two_factor_enabled', 'last_activity', 'date_joined',
-            'profile', 'full_name'
+            'profile', 'full_name', 'language', 'email_notifications',
+            'push_notifications', 'cover_image'
         ]
         read_only_fields = [
             'id', 'verification_status', 'total_courses_created',
             'total_students', 'total_revenue', 'rating_average',
-            'rating_count', 'is_verified', 'last_activity', 'date_joined'
+            'rating_count', 'is_verified', 'last_activity', 'date_joined',
+            'role', 'email', 'two_factor_enabled'
         ]
     
     def get_avatar_url(self, obj):
@@ -63,28 +65,45 @@ class UserCreateSerializer(serializers.ModelSerializer):
     
     password = serializers.CharField(write_only=True, validators=[validate_password])
     password_confirm = serializers.CharField(write_only=True)
+    referral_code = serializers.CharField(write_only=True, required=False, allow_blank=True)
     
     class Meta:
         model = User
         fields = [
             'email', 'username', 'first_name', 'last_name',
             'password', 'password_confirm', 'role', 'phone_number',
-            'country', 'city'
+            'country', 'city', 'referral_code'
         ]
     
+        extra_kwargs = {'username': {'required': False}}
+
+    def validate_email(self, value):
+        value = value.lower()
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Un compte existe déjà avec cet email.")
+        return value
+
+    def validate_role(self, value):
+        # Seuls les rôles étudiant et formateur sont ouverts à l'inscription publique.
+        if value not in (User.Role.ETUDIANT, User.Role.FORMATEUR):
+            raise serializers.ValidationError("Rôle non autorisé à l'inscription.")
+        return value
+
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
-            raise serializers.ValidationError("Les mots de passe ne correspondent pas.")
+            raise serializers.ValidationError({'password_confirm': "Les mots de passe ne correspondent pas."})
         return attrs
-    
+
     def create(self, validated_data):
         validated_data.pop('password_confirm')
-        user = User.objects.create_user(**validated_data)
-        
-        # Créer automatiquement le profil utilisateur
-        UserProfile.objects.create(user=user)
-        
-        return user
+        code = (validated_data.pop('referral_code', '') or '').strip().upper()
+        if code:
+            # Un code inconnu est simplement ignoré : il ne doit pas bloquer l'inscription
+            validated_data['referred_by'] = User.objects.filter(referral_code=code).first()
+        password = validated_data.pop('password')
+        email = validated_data.pop('email')
+        # Le profil est créé par le signal post_save (users.signals)
+        return User.objects.create_user(email=email, password=password, **validated_data)
 
 class UserUpdateSerializer(serializers.ModelSerializer):
     """Sérialiseur pour la mise à jour des utilisateurs"""
@@ -113,11 +132,12 @@ class LoginSerializer(serializers.Serializer):
     
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
-    
+    otp_code = serializers.CharField(required=False, allow_blank=True, write_only=True)
+
     def validate(self, attrs):
-        email = attrs.get('email')
+        email = (attrs.get('email') or '').lower()
         password = attrs.get('password')
-        
+
         if email and password:
             user = authenticate(request=self.context.get('request'),
                               username=email, password=password)
@@ -125,10 +145,17 @@ class LoginSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     'Impossible de se connecter avec les identifiants fournis.'
                 )
-            if not user.is_active:
+            if not user.is_active or user.is_banned:
                 raise serializers.ValidationError(
                     'Ce compte a été désactivé.'
                 )
+            if user.two_factor_enabled:
+                import pyotp
+                code = attrs.get('otp_code')
+                if not code:
+                    raise serializers.ValidationError({'otp_required': True, 'detail': 'Code 2FA requis.'})
+                if not pyotp.TOTP(user.totp_secret).verify(code, valid_window=1):
+                    raise serializers.ValidationError({'otp_code': 'Code 2FA invalide.'})
             attrs['user'] = user
             return attrs
         else:
@@ -156,6 +183,7 @@ class PasswordResetSerializer(serializers.Serializer):
 class PasswordResetConfirmSerializer(serializers.Serializer):
     """Sérialiseur pour la confirmation de réinitialisation de mot de passe"""
     
+    uid = serializers.CharField()
     token = serializers.CharField()
     new_password = serializers.CharField(validators=[validate_password])
     new_password_confirm = serializers.CharField()
@@ -201,14 +229,24 @@ class FollowUserSerializer(serializers.Serializer):
 
 class UserStatsSerializer(serializers.ModelSerializer):
     """Sérialiseur pour les statistiques utilisateur"""
-    
+
+    courses_completed = serializers.IntegerField(source='profile.courses_completed', read_only=True)
+    total_study_time = serializers.IntegerField(source='profile.total_study_time', read_only=True)
+    current_streak = serializers.IntegerField(source='profile.current_streak', read_only=True)
+    longest_streak = serializers.IntegerField(source='profile.longest_streak', read_only=True)
+    enrolled_courses = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = [
             'total_courses_created', 'total_students', 'total_revenue',
             'rating_average', 'rating_count', 'courses_completed',
-            'total_study_time', 'current_streak', 'longest_streak'
+            'total_study_time', 'current_streak', 'longest_streak',
+            'enrolled_courses',
         ]
+
+    def get_enrolled_courses(self, obj):
+        return obj.enrollments.exclude(status='CANCELLED').count()
 
 class UserSearchSerializer(serializers.ModelSerializer):
     """Sérialiseur pour la recherche d'utilisateurs"""

@@ -1,126 +1,85 @@
-import { useState, useEffect } from 'react';
-import { Course, User } from '../types';
+import { useEffect, useState } from 'react';
+import { api, unwrap } from '../lib/api';
+import { mapCourse } from '../lib/mappers';
+import { Category, Course } from '../types';
 
-// Mock data pour la démo
-const mockInstructors: User[] = [
-  { id: '2', name: 'Dr. Jean Martin', email: 'jean@example.com', role: 'FORMATEUR', verified: true, bio: 'Expert en développement web', createdAt: new Date() },
-  { id: '4', name: 'Sarah Chen', email: 'sarah@example.com', role: 'FORMATEUR', verified: true, bio: 'Data Scientist Senior', createdAt: new Date() },
-  { id: '5', name: 'Ahmed Okafor', email: 'ahmed@example.com', role: 'FORMATEUR', verified: true, bio: 'UX/UI Designer', createdAt: new Date() }
-];
-
-const mockCourses: Course[] = [
-  {
-    id: '1',
-    title: 'React & Next.js - Formation Complète',
-    slug: 'react-nextjs-formation-complete',
-    description: 'Maîtrisez React et Next.js de A à Z avec des projets pratiques et des techniques avancées.',
-    thumbnail: 'https://images.pexels.com/photos/11035380/pexels-photo-11035380.jpeg?auto=compress&cs=tinysrgb&w=800',
-    price: 89000,
-    level: 'INTERMEDIAIRE',
-    category: 'Développement Web',
-    duration: 1800,
-    lessonsCount: 45,
-    rating: 4.8,
-    studentsCount: 1247,
-    instructor: mockInstructors[0],
-    status: 'PUBLISHED',
-    createdAt: new Date('2024-01-15'),
-    updatedAt: new Date('2024-12-01')
-  },
-  {
-    id: '2',
-    title: 'Data Science avec Python',
-    slug: 'data-science-python',
-    description: 'Analysez et visualisez vos données avec Python, Pandas, NumPy et Matplotlib.',
-    thumbnail: 'https://images.pexels.com/photos/590020/pexels-photo-590020.jpeg?auto=compress&cs=tinysrgb&w=800',
-    price: 125000,
-    level: 'AVANCE',
-    category: 'Data Science',
-    duration: 2400,
-    lessonsCount: 38,
-    rating: 4.9,
-    studentsCount: 892,
-    instructor: mockInstructors[1],
-    status: 'PUBLISHED',
-    createdAt: new Date('2024-02-20'),
-    updatedAt: new Date('2024-11-15')
-  },
-  {
-    id: '3',
-    title: 'Design UX/UI Moderne',
-    slug: 'design-ux-ui-moderne',
-    description: 'Créez des interfaces utilisateur exceptionnelles avec Figma et les principes du design thinking.',
-    thumbnail: 'https://images.pexels.com/photos/196644/pexels-photo-196644.jpeg?auto=compress&cs=tinysrgb&w=800',
-    price: 67000,
-    level: 'DEBUTANT',
-    category: 'Design',
-    duration: 1200,
-    lessonsCount: 32,
-    rating: 4.7,
-    studentsCount: 1456,
-    instructor: mockInstructors[2],
-    status: 'PUBLISHED',
-    createdAt: new Date('2024-03-10'),
-    updatedAt: new Date('2024-12-05')
-  },
-  {
-    id: '4',
-    title: 'JavaScript ES6+ Avancé',
-    slug: 'javascript-es6-avance',
-    description: 'Approfondissez vos connaissances JavaScript avec les fonctionnalités modernes et les design patterns.',
-    thumbnail: 'https://images.pexels.com/photos/4164418/pexels-photo-4164418.jpeg?auto=compress&cs=tinysrgb&w=800',
-    price: 75000,
-    level: 'INTERMEDIAIRE',
-    category: 'Développement Web',
-    duration: 1500,
-    lessonsCount: 28,
-    rating: 4.6,
-    studentsCount: 987,
-    instructor: mockInstructors[0],
-    status: 'PUBLISHED',
-    createdAt: new Date('2024-04-05'),
-    updatedAt: new Date('2024-11-20')
-  }
-];
-
-export const useCourses = () => {
+/** Catalogue : recherche, filtres et pagination côté serveur. */
+export const useCourses = (initialSearch = '', initialCategory = '') => {
   const [courses, setCourses] = useState<Course[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [count, setCount] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('');
+  const [error, setError] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialSearch);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
+  const [selectedCategory, setSelectedCategory] = useState(initialCategory);
   const [selectedLevel, setSelectedLevel] = useState('');
+  const [priceFilter, setPriceFilter] = useState<'' | 'free' | 'paid'>('');
+  const [ordering, setOrdering] = useState('-published_at');
+
+  useEffect(() => setSearchTerm(initialSearch), [initialSearch]);
 
   useEffect(() => {
-    // Simulate API call
-    setTimeout(() => {
-      setCourses(mockCourses);
-      setLoading(false);
-    }, 800);
+    const t = setTimeout(() => setDebouncedSearch(searchTerm), 300);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    api.get('/courses/categories/').then((data) =>
+      setCategories(unwrap(data).map((c: any) => ({
+        id: c.id, name: c.name, slug: c.slug, color: c.color, icon: c.icon, coursesCount: c.courses_count,
+      })))
+    ).catch(() => undefined);
   }, []);
 
-  const filteredCourses = courses.filter(course => {
-    const matchesSearch = course.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         course.description.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = !selectedCategory || course.category === selectedCategory;
-    const matchesLevel = !selectedLevel || course.level === selectedLevel;
-    
-    return matchesSearch && matchesCategory && matchesLevel;
-  });
+  useEffect(() => setPage(1), [debouncedSearch, selectedCategory, selectedLevel, priceFilter, ordering]);
 
-  const categories = Array.from(new Set(courses.map(course => course.category)));
-  const levels = ['DEBUTANT', 'INTERMEDIAIRE', 'AVANCE'];
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    api.get('/courses/', {
+      search: debouncedSearch,
+      category: selectedCategory,
+      level: selectedLevel,
+      free: priceFilter === 'free' ? 'true' : undefined,
+      price_min: priceFilter === 'paid' ? 1 : undefined,
+      ordering,
+      page,
+      page_size: 12,
+    })
+      .then((data) => {
+        if (cancelled) return;
+        setCourses(unwrap(data).map(mapCourse));
+        setCount(data.count ?? unwrap(data).length);
+      })
+      .catch((err) => !cancelled && setError(err.message))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSearch, selectedCategory, selectedLevel, priceFilter, ordering, page]);
 
   return {
-    courses: filteredCourses,
-    allCourses: courses,
+    courses,
+    count,
+    page,
+    setPage,
+    pageCount: Math.max(1, Math.ceil(count / 12)),
     loading,
+    error,
     searchTerm,
     setSearchTerm,
     selectedCategory,
     setSelectedCategory,
     selectedLevel,
     setSelectedLevel,
+    priceFilter,
+    setPriceFilter,
+    ordering,
+    setOrdering,
     categories,
-    levels
+    levels: ['DEBUTANT', 'INTERMEDIAIRE', 'AVANCE'],
   };
 };

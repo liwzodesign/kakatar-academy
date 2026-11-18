@@ -1,0 +1,5 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Rappel : la session <strong>{{ session.title }}</strong> commence {{ when }} ({{ session.start_at|date:"d/m/Y à H:i" }}).</p>
+<p>{% if session.type == "PRESENTIAL" %}📍 {{ session.location }}{% else %}Rejoignez-la depuis l'onglet « Sessions » de la plateforme.{% endif %}</p>
+{% endblock %}

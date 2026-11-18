@@ -1,399 +1,188 @@
-import React, { useState } from 'react';
-import { 
-  Calendar, 
-  Clock, 
-  MapPin, 
-  Users, 
-  Filter, 
-  Search,
-  User,
-  Star,
-  ChevronRight
-} from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Clock, MapPin, Users, Search, ChevronRight, Plus, Video } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { api, unwrap } from '../../lib/api';
+import { formatPrice, LEVEL_LABELS } from '../../lib/format';
+import { mapSession } from '../../lib/mappers';
+import { navigate } from '../../lib/router';
+import { useApi } from '../../hooks/useApi';
+import { useAuth } from '../../hooks/useAuth';
+import { Session } from '../../types';
+import { Avatar, EmptyState, ErrorBox, Modal, Spinner, buttonPrimary, inputClass } from '../UI';
+import { Badge, ProgressBar, Tabs } from '../UI/kit';
 
-interface Session {
-  id: string;
-  title: string;
-  description: string;
-  date: Date;
-  duration: number;
-  location: string;
-  capacity: number;
-  registrations: number;
-  price: number;
-  instructor: {
-    name: string;
-    avatar?: string;
-    rating: number;
-  };
-  type: 'ONLINE' | 'PRESENTIAL';
-  category: string;
-  level: 'DEBUTANT' | 'INTERMEDIAIRE' | 'AVANCE';
-}
+const TYPE_LABELS: Record<string, string> = { ONLINE: 'En ligne', PRESENTIAL: 'Présentiel', HYBRID: 'Hybride' };
 
-interface SessionListProps {
-  onSessionSelect: (session: Session) => void;
-}
-
-export const SessionList: React.FC<SessionListProps> = ({ onSessionSelect }) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('');
-  const [selectedType, setSelectedType] = useState('');
-  const [selectedLevel, setSelectedLevel] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
-
-  // Mock data
-  const mockSessions: Session[] = [
-    {
-      id: '1',
-      title: 'Workshop React Avancé',
-      description: 'Approfondissez vos connaissances React avec les hooks avancés, le state management et les patterns modernes.',
-      date: new Date('2024-12-15T14:00:00'),
-      duration: 180,
-      location: 'Dakar, Sénégal - Centre de formation Kakatar',
-      capacity: 20,
-      registrations: 12,
-      price: 25000,
-      instructor: {
-        name: 'Dr. Jean Martin',
-        rating: 4.9
-      },
-      type: 'PRESENTIAL',
-      category: 'Développement Web',
-      level: 'AVANCE'
-    },
-    {
-      id: '2',
-      title: 'Introduction à la Data Science',
-      description: 'Découvrez les fondamentaux de la science des données avec Python, pandas et matplotlib.',
-      date: new Date('2024-12-18T10:00:00'),
-      duration: 240,
-      location: 'Session en ligne via Zoom',
-      capacity: 50,
-      registrations: 35,
-      price: 20000,
-      instructor: {
-        name: 'Sarah Chen',
-        rating: 4.8
-      },
-      type: 'ONLINE',
-      category: 'Data Science',
-      level: 'DEBUTANT'
-    },
-    {
-      id: '3',
-      title: 'Atelier UX Design Thinking',
-      description: 'Maîtrisez les méthodes de design thinking pour créer des expériences utilisateur exceptionnelles.',
-      date: new Date('2024-12-20T16:00:00'),
-      duration: 150,
-      location: 'Abidjan, Côte d\'Ivoire - Hub Innovation',
-      capacity: 15,
-      registrations: 8,
-      price: 30000,
-      instructor: {
-        name: 'Ahmed Okafor',
-        rating: 4.7
-      },
-      type: 'PRESENTIAL',
-      category: 'Design',
-      level: 'INTERMEDIAIRE'
-    },
-    {
-      id: '4',
-      title: 'Marketing Digital & SEO',
-      description: 'Stratégies complètes pour optimiser votre présence en ligne et améliorer votre référencement.',
-      date: new Date('2024-12-22T09:00:00'),
-      duration: 200,
-      location: 'Session en ligne via Teams',
-      capacity: 40,
-      registrations: 28,
-      price: 18000,
-      instructor: {
-        name: 'Fatima Diallo',
-        rating: 4.6
-      },
-      type: 'ONLINE',
-      category: 'Marketing',
-      level: 'INTERMEDIAIRE'
-    }
-  ];
-
-  const categories = Array.from(new Set(mockSessions.map(s => s.category)));
-  const levels = ['DEBUTANT', 'INTERMEDIAIRE', 'AVANCE'];
-  const types = ['ONLINE', 'PRESENTIAL'];
-
-  const filteredSessions = mockSessions.filter(session => {
-    const matchesSearch = session.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         session.description.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = !selectedCategory || session.category === selectedCategory;
-    const matchesType = !selectedType || session.type === selectedType;
-    const matchesLevel = !selectedLevel || session.level === selectedLevel;
-    
-    return matchesSearch && matchesCategory && matchesType && matchesLevel;
+const SessionForm: React.FC<{ onClose: () => void; onCreated: () => void }> = ({ onClose, onCreated }) => {
+  const [form, setForm] = useState({
+    title: '', description: '', type: 'ONLINE', start_at: '', duration: 60, location: '', capacity: 20, price: 0, level: 'DEBUTANT', cohort: '',
   });
+  const [cohorts, setCohorts] = useState<{ id: string; title: string; course: { title: string }; status: string }[]>([]);
+  useEffect(() => { api.get('/cohorts/instructor/').then((list) => setCohorts(list.filter((c: { status: string }) => c.status !== 'CANCELLED'))).catch(() => setCohorts([])); }, []);
+  const [error, setError] = useState('');
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+    setForm({ ...form, [k]: e.target.value });
 
-  const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('fr-FR', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(price);
-  };
-
-  const formatDate = (date: Date) => {
-    return new Intl.DateTimeFormat('fr-FR', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(date);
-  };
-
-  const getLevelLabel = (level: string) => {
-    const labels = {
-      'DEBUTANT': 'Débutant',
-      'INTERMEDIAIRE': 'Intermédiaire',
-      'AVANCE': 'Avancé'
-    };
-    return labels[level as keyof typeof labels] || level;
-  };
-
-  const getLevelColor = (level: string) => {
-    const colors = {
-      'DEBUTANT': 'bg-green-100 text-green-800',
-      'INTERMEDIAIRE': 'bg-yellow-100 text-yellow-800',
-      'AVANCE': 'bg-red-100 text-red-800'
-    };
-    return colors[level as keyof typeof colors] || 'bg-gray-100 text-gray-800';
-  };
-
-  const getTypeLabel = (type: string) => {
-    return type === 'ONLINE' ? 'En ligne' : 'Présentiel';
-  };
-
-  const getTypeColor = (type: string) => {
-    return type === 'ONLINE' 
-      ? 'bg-blue-100 text-blue-800' 
-      : 'bg-purple-100 text-purple-800';
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    try {
+      await api.post('/sessions/create/', { ...form, cohort: form.cohort || null, price: form.cohort ? 0 : form.price, start_at: new Date(form.start_at).toISOString() });
+      onCreated();
+      onClose();
+    } catch (err) {
+      setError((err as Error).message);
+    }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Sessions de formation</h1>
-            <p className="text-gray-600 mt-1">{filteredSessions.length} sessions disponibles</p>
-          </div>
-
-          <div className="flex items-center space-x-4">
-            <div className="relative flex-1 lg:w-96">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Rechercher une session..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <Filter className="w-4 h-4" />
-              <span>Filtres</span>
-            </button>
-          </div>
+    <Modal title="Programmer une session" onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3">
+        <input className={inputClass} placeholder="Titre" value={form.title} onChange={set('title')} required />
+        <textarea className={inputClass} placeholder="Description" rows={3} value={form.description} onChange={set('description')} required />
+        <div className="grid grid-cols-2 gap-3">
+          <select className={inputClass} value={form.type} onChange={set('type')}>
+            <option value="ONLINE">En ligne</option>
+            <option value="PRESENTIAL">Présentiel</option>
+            <option value="HYBRID">Hybride</option>
+          </select>
+          <select className={inputClass} value={form.level} onChange={set('level')}>
+            <option value="DEBUTANT">Débutant</option>
+            <option value="INTERMEDIAIRE">Intermédiaire</option>
+            <option value="AVANCE">Avancé</option>
+          </select>
         </div>
+        <input type="datetime-local" className={inputClass} value={form.start_at} onChange={set('start_at')} required />
+        {cohorts.length > 0 && (
+          <label className="block text-sm">Réservée à une promotion
+            <select className={inputClass} value={form.cohort} onChange={set('cohort')}>
+              <option value="">Non — session ouverte à tous</option>
+              {cohorts.map((c) => <option key={c.id} value={c.id}>{c.title} · {c.course.title}</option>)}
+            </select>
+          </label>
+        )}
+        {form.type !== 'ONLINE' && <input className={inputClass} placeholder="Adresse" value={form.location} onChange={set('location')} required />}
+        <div className="grid grid-cols-3 gap-3">
+          <label className="text-sm">Durée (min)<input type="number" min={15} className={inputClass} value={form.duration} onChange={set('duration')} /></label>
+          <label className="text-sm">Places<input type="number" min={1} className={inputClass} value={form.capacity} onChange={set('capacity')} /></label>
+          <label className="text-sm">Prix (FCFA)<input type="number" min={0} step={500} className={inputClass} value={form.cohort ? 0 : form.price} disabled={!!form.cohort} onChange={set('price')} /></label>
+        </div>
+        {form.type !== 'PRESENTIAL' && <p className="text-xs text-gray-500">Une salle de visioconférence sécurisée est créée automatiquement.</p>}
+        {error && <ErrorBox message={error} />}
+        <button className={`${buttonPrimary} w-full`}>Programmer</button>
+      </form>
+    </Modal>
+  );
+};
 
-        {/* Filters */}
-        {showFilters && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="mt-6 pt-6 border-t border-gray-100"
-          >
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Catégorie
-                </label>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="">Toutes les catégories</option>
-                  {categories.map(category => (
-                    <option key={category} value={category}>{category}</option>
-                  ))}
-                </select>
-              </div>
+export const SessionList: React.FC = () => {
+  const { authState } = useAuth();
+  const isInstructor = authState.user?.role === 'FORMATEUR' || authState.user?.role === 'ADMIN';
+  const [tab, setTab] = useState<'upcoming' | 'mine'>('upcoming');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedType, setSelectedType] = useState('');
+  const [selectedLevel, setSelectedLevel] = useState('');
+  const [showForm, setShowForm] = useState(false);
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Type
-                </label>
-                <select
-                  value={selectedType}
-                  onChange={(e) => setSelectedType(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="">Tous les types</option>
-                  <option value="ONLINE">En ligne</option>
-                  <option value="PRESENTIAL">Présentiel</option>
-                </select>
-              </div>
+  const { data: sessions, loading, error, reload } = useApi(async () => {
+    if (tab === 'mine') {
+      if (isInstructor) return unwrap(await api.get('/sessions/mine/')).map(mapSession);
+      return unwrap(await api.get('/sessions/registrations/')).map((r: any) => mapSession(r.session));
+    }
+    return unwrap(await api.get('/sessions/', { search: searchTerm, type: selectedType, level: selectedLevel })).map(mapSession);
+  }, [tab, searchTerm, selectedType, selectedLevel, isInstructor]);
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Niveau
-                </label>
-                <select
-                  value={selectedLevel}
-                  onChange={(e) => setSelectedLevel(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="">Tous les niveaux</option>
-                  <option value="DEBUTANT">Débutant</option>
-                  <option value="INTERMEDIAIRE">Intermédiaire</option>
-                  <option value="AVANCE">Avancé</option>
-                </select>
-              </div>
 
-              <div className="flex items-end">
-                <button
-                  onClick={() => {
-                    setSelectedCategory('');
-                    setSelectedType('');
-                    setSelectedLevel('');
-                    setSearchTerm('');
-                  }}
-                  className="w-full px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Réinitialiser
-                </button>
-              </div>
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl shadow-card ring-1 ring-gray-100 p-6 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Sessions en direct</h1>
+            <p className="text-gray-600 mt-1">Ateliers en ligne et en présentiel avec nos formateurs</p>
+          </div>
+          {isInstructor && (
+            <button onClick={() => setShowForm(true)} className={`${buttonPrimary} flex items-center space-x-2`}><Plus className="w-4 h-4" /><span>Programmer une session</span></button>
+          )}
+        </div>
+        <Tabs value={tab} onChange={setTab} items={[
+          { value: 'upcoming', label: 'À venir' },
+          { value: 'mine', label: isInstructor ? 'Mes sessions animées' : 'Mes inscriptions' },
+        ]} />
+        {tab === 'upcoming' && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Rechercher…" className={`${inputClass} pl-10`} />
             </div>
-          </motion.div>
+            <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)} className={inputClass}>
+              <option value="">Tous les formats</option>
+              <option value="ONLINE">En ligne</option>
+              <option value="PRESENTIAL">Présentiel</option>
+              <option value="HYBRID">Hybride</option>
+            </select>
+            <select value={selectedLevel} onChange={(e) => setSelectedLevel(e.target.value)} className={inputClass}>
+              <option value="">Tous les niveaux</option>
+              <option value="DEBUTANT">Débutant</option>
+              <option value="INTERMEDIAIRE">Intermédiaire</option>
+              <option value="AVANCE">Avancé</option>
+            </select>
+          </div>
         )}
       </div>
 
-      {/* Sessions Grid */}
-      {filteredSessions.length === 0 ? (
-        <div className="text-center py-12">
-          <p className="text-gray-500">Aucune session trouvée avec ces critères</p>
-        </div>
+      {error && <ErrorBox message={error} onRetry={reload} />}
+      {loading ? (
+        <Spinner />
+      ) : !sessions?.length ? (
+        <EmptyState title="Aucune session" text={tab === 'mine' ? 'Rien de prévu pour le moment.' : 'Revenez bientôt : de nouvelles sessions sont programmées régulièrement.'} />
       ) : (
-        <div className="grid gap-6">
-          {filteredSessions.map((session, index) => {
-            const availableSpots = session.capacity - session.registrations;
-            const isAlmostFull = availableSpots <= 3;
-            const isFullyBooked = availableSpots <= 0;
-
-            return (
-              <motion.div
-                key={session.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: index * 0.1 }}
-                className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => onSessionSelect(session)}
-              >
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-3 mb-2">
-                        <h3 className="text-xl font-bold text-gray-900">{session.title}</h3>
-                        <div className="flex items-center space-x-2">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getLevelColor(session.level)}`}>
-                            {getLevelLabel(session.level)}
-                          </span>
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getTypeColor(session.type)}`}>
-                            {getTypeLabel(session.type)}
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-gray-600 mb-4">{session.description}</p>
-                    </div>
-                    
-                    <div className="text-right ml-6">
-                      <div className="text-2xl font-bold text-gray-900 mb-1">
-                        {formatPrice(session.price)} FCFA
-                      </div>
-                      {isFullyBooked ? (
-                        <span className="text-sm text-red-600 font-medium">Complet</span>
-                      ) : isAlmostFull ? (
-                        <span className="text-sm text-orange-600 font-medium">
-                          Plus que {availableSpots} places
-                        </span>
-                      ) : (
-                        <span className="text-sm text-green-600 font-medium">
-                          {availableSpots} places disponibles
-                        </span>
-                      )}
-                    </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {sessions.map((session: Session) => (
+            <motion.button
+              key={session.id}
+              whileHover={{ y: -3 }}
+              onClick={() => navigate(`/sessions/${session.id}`)}
+              className="text-left bg-white rounded-2xl shadow-card ring-1 ring-gray-100 p-5 sm:p-6 hover:shadow-lift transition-shadow flex flex-col"
+            >
+              <div className="flex items-start gap-4">
+                <span className="text-center rounded-2xl bg-primary-50 text-primary-800 w-16 py-2.5 flex-shrink-0 leading-none">
+                  <span className="block text-2xl font-extrabold">{session.date.getDate()}</span>
+                  <span className="block text-[11px] font-bold uppercase mt-1">{session.date.toLocaleDateString('fr-FR', { month: 'short' })}</span>
+                  <span className="block text-[11px] text-primary-500 mt-1">{session.date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap gap-1.5">
+                    <Badge tone={session.type === 'ONLINE' ? 'sky' : session.type === 'HYBRID' ? 'rose' : 'secondary'}>{TYPE_LABELS[session.type]}</Badge>
+                    <Badge tone="gray">{LEVEL_LABELS[session.level]}</Badge>
+                    {session.isRegistered && <Badge tone="primary">Inscrit</Badge>}
+                    {session.status === 'CANCELLED' && <Badge tone="danger">Annulée</Badge>}
                   </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    <div className="flex items-center space-x-2 text-sm text-gray-600">
-                      <Calendar className="w-4 h-4" />
-                      <span>{formatDate(session.date)}</span>
-                    </div>
-                    
-                    <div className="flex items-center space-x-2 text-sm text-gray-600">
-                      <Clock className="w-4 h-4" />
-                      <span>{session.duration} minutes</span>
-                    </div>
-                    
-                    <div className="flex items-center space-x-2 text-sm text-gray-600">
-                      <MapPin className="w-4 h-4" />
-                      <span className="truncate">{session.location}</span>
-                    </div>
-                    
-                    <div className="flex items-center space-x-2 text-sm text-gray-600">
-                      <Users className="w-4 h-4" />
-                      <span>{session.registrations}/{session.capacity} inscrits</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
-                        <User className="w-5 h-5 text-white" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-900">{session.instructor.name}</p>
-                        <div className="flex items-center space-x-1">
-                          <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                          <span className="text-sm text-gray-600">{session.instructor.rating}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <button
-                      className={`flex items-center space-x-2 px-6 py-2 rounded-lg font-medium transition-colors ${
-                        isFullyBooked
-                          ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
-                          : 'bg-blue-600 text-white hover:bg-blue-700'
-                      }`}
-                      disabled={isFullyBooked}
-                    >
-                      <span>{isFullyBooked ? 'Complet' : 'Réserver'}</span>
-                      {!isFullyBooked && <ChevronRight className="w-4 h-4" />}
-                    </button>
-                  </div>
+                  <h3 className="mt-2 text-lg font-bold text-gray-900 leading-snug line-clamp-2">{session.title}</h3>
                 </div>
-              </motion.div>
-            );
-          })}
+              </div>
+              <p className="mt-3 text-gray-600 text-sm line-clamp-2">{session.description}</p>
+              <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-gray-500">
+                <span className="flex items-center gap-1.5"><Clock className="w-4 h-4" />{session.duration} min</span>
+                <span className="flex items-center gap-1.5 min-w-0">{session.type === 'ONLINE' ? <Video className="w-4 h-4" /> : <MapPin className="w-4 h-4" />}<span className="truncate max-w-[14rem]">{session.location}</span></span>
+              </div>
+              <div className="mt-4">
+                <div className="flex justify-between text-xs text-gray-500 mb-1.5"><span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" />{session.registrations}/{session.capacity} inscrits</span>{session.spotsLeft <= 5 && session.spotsLeft > 0 && <span className="font-semibold text-sun-700">Plus que {session.spotsLeft} place(s)</span>}</div>
+                <ProgressBar value={(session.registrations / session.capacity) * 100} tone="secondary" />
+              </div>
+              <div className="mt-auto pt-4 flex items-center justify-between border-t border-gray-100 mt-5">
+                <span className="flex items-center gap-2 min-w-0">
+                  <Avatar name={session.instructor.name} src={session.instructor.avatar} size="w-8 h-8" />
+                  <span className="text-sm font-medium text-gray-800 truncate">{session.instructor.name}</span>
+                </span>
+                <span className="flex items-center gap-1 font-extrabold text-primary-800">{formatPrice(session.price, session.currency)}<ChevronRight className="w-4 h-4 text-gray-400" /></span>
+              </div>
+            </motion.button>
+          ))}
         </div>
       )}
+
+      {showForm && <SessionForm onClose={() => setShowForm(false)} onCreated={() => { setTab('mine'); reload(); }} />}
     </div>
   );
 };

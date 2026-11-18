@@ -73,8 +73,8 @@ class IsEnrolledStudent(permissions.BasePermission):
         else:
             course = obj
         
-        # Les administrateurs et formateurs ont toujours accès
-        if request.user.role in ['ADMIN', 'FORMATEUR']:
+        # L'administrateur et l'instructeur du cours ont toujours accès
+        if request.user.role == 'ADMIN' or getattr(course, 'instructor_id', None) == request.user.id:
             return True
         
         # Vérifier si l'étudiant est inscrit au cours
@@ -82,7 +82,7 @@ class IsEnrolledStudent(permissions.BasePermission):
         return Enrollment.objects.filter(
             user=request.user,
             course=course,
-            status='ACTIVE'
+            status__in=['ACTIVE', 'COMPLETED']
         ).exists()
 
 class IsCourseInstructor(permissions.BasePermission):
@@ -98,9 +98,10 @@ class IsCourseInstructor(permissions.BasePermission):
         # Vérifier si l'utilisateur est l'instructeur du cours
         if hasattr(obj, 'instructor'):
             return obj.instructor == request.user
-        elif hasattr(obj, 'course'):
+        if hasattr(obj, 'course'):
             return obj.course.instructor == request.user
-        
+        if hasattr(obj, 'module'):
+            return obj.module.course.instructor == request.user
         return False
 
 class IsPublicOrAuthenticated(permissions.BasePermission):
@@ -133,12 +134,10 @@ class IsNotBanned(permissions.BasePermission):
     """
     
     def has_permission(self, request, view):
-        # Vérifier si l'utilisateur a un statut banni
-        # À implémenter selon vos besoins
-        return request.user and request.user.is_authenticated
-    
+        return bool(request.user and request.user.is_authenticated and not request.user.is_banned)
+
     def has_object_permission(self, request, view, obj):
-        return request.user and request.user.is_authenticated
+        return self.has_permission(request, view)
 
 class HasValidSubscription(permissions.BasePermission):
     """
@@ -146,11 +145,15 @@ class HasValidSubscription(permissions.BasePermission):
     """
     
     def has_permission(self, request, view):
-        # À implémenter selon votre logique d'abonnement
-        return request.user and request.user.is_authenticated
-    
+        if not (request.user and request.user.is_authenticated):
+            return False
+        if request.user.role == 'ADMIN':
+            return True
+        from payments.models import Subscription
+        return Subscription.objects.active_for(request.user).exists()
+
     def has_object_permission(self, request, view, obj):
-        return request.user and request.user.is_authenticated
+        return self.has_permission(request, view)
 
 class CanAccessPremiumContent(permissions.BasePermission):
     """
@@ -163,22 +166,11 @@ class CanAccessPremiumContent(permissions.BasePermission):
             return True
         
         # Vérifier si le contenu est premium
-        if hasattr(obj, 'is_premium') and obj.is_premium:
-            # Vérifier si l'utilisateur a un abonnement premium
-            # À implémenter selon votre logique
-            return True
-        
+        if getattr(obj, 'is_premium', False):
+            from payments.models import Subscription
+            return Subscription.objects.active_for(request.user).filter(
+                plan__in=['PREMIUM', 'ENTERPRISE']).exists()
         return True
 
-class IsWithinRateLimit(permissions.BasePermission):
-    """
-    Permission pour vérifier les limites de taux (rate limiting)
-    """
-    
-    def has_permission(self, request, view):
-        # À implémenter avec Redis ou un autre système de cache
-        # pour limiter le nombre de requêtes par utilisateur
-        return True
-    
-    def has_object_permission(self, request, view, obj):
-        return True 
+# NB : la limitation de débit est assurée par les throttles DRF
+# (voir REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] dans settings.py). 

@@ -1,239 +1,231 @@
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
+import { AnimatePresence, MotionConfig } from 'framer-motion';
 import { Header } from './components/Layout/Header';
 import { Sidebar } from './components/Layout/Sidebar';
 import { AuthModal } from './components/Auth/AuthModal';
-import { CourseCatalog } from './components/Course/CourseCatalog';
-import { CourseDetail } from './components/Course/CourseDetail';
-import { CoursePlayer } from './components/Course/CoursePlayer';
-import { CreateCourse } from './components/Course/CreateCourse';
-import { SessionList } from './components/Session/SessionList';
-import { SessionBooking } from './components/Session/SessionBooking';
-import { StudentDashboard } from './components/Dashboard/StudentDashboard';
-import { InstructorDashboard } from './components/Dashboard/InstructorDashboard';
-import { AdminDashboard } from './components/Dashboard/AdminDashboard';
+import { Spinner } from './components/UI';
+import { Landing } from './components/Landing/Landing';
+import { Footer } from './components/Layout/Footer';
+import { InstallPrompt } from './components/Layout/InstallPrompt';
 import { AuthProvider, useAuth } from './hooks/useAuth';
-import { useCourses } from './hooks/useCourses';
-import { motion, AnimatePresence } from 'framer-motion';
+import { matchPath, navigate, useLocation } from './lib/router';
+
+// Pages chargées à la demande : le premier affichage ne télécharge que le nécessaire (réseaux mobiles).
+const CourseCatalog = lazy(() => import('./components/Course/CourseCatalog').then((m) => ({ default: m.CourseCatalog })));
+const CourseDetail = lazy(() => import('./components/Course/CourseDetail').then((m) => ({ default: m.CourseDetail })));
+const CoursePlayer = lazy(() => import('./components/Course/CoursePlayer').then((m) => ({ default: m.CoursePlayer })));
+const CreateCourse = lazy(() => import('./components/Course/CreateCourse').then((m) => ({ default: m.CreateCourse })));
+const MyCourses = lazy(() => import('./components/Course/MyCourses').then((m) => ({ default: m.MyCourses })));
+const Certificates = lazy(() => import('./components/Course/Certificates').then((m) => ({ default: m.Certificates })));
+const CertificateLookup = lazy(() => import('./components/Course/Certificates').then((m) => ({ default: m.CertificateLookup })));
+const CertificateVerify = lazy(() => import('./components/Course/Certificates').then((m) => ({ default: m.CertificateVerify })));
+const SessionList = lazy(() => import('./components/Session/SessionList').then((m) => ({ default: m.SessionList })));
+const SessionBooking = lazy(() => import('./components/Session/SessionBooking').then((m) => ({ default: m.SessionBooking })));
+const StudentDashboard = lazy(() => import('./components/Dashboard/StudentDashboard').then((m) => ({ default: m.StudentDashboard })));
+const InstructorDashboard = lazy(() => import('./components/Dashboard/InstructorDashboard').then((m) => ({ default: m.InstructorDashboard })));
+const AdminDashboard = lazy(() => import('./components/Dashboard/AdminDashboard').then((m) => ({ default: m.AdminDashboard })));
+const Marketplace = lazy(() => import('./components/Marketplace/Marketplace').then((m) => ({ default: m.Marketplace })));
+const ProductDetail = lazy(() => import('./components/Marketplace/Marketplace').then((m) => ({ default: m.ProductDetail })));
+const Purchases = lazy(() => import('./components/Marketplace/Marketplace').then((m) => ({ default: m.Purchases })));
+const Settings = lazy(() => import('./components/Account/Settings').then((m) => ({ default: m.Settings })));
+const ResetPassword = lazy(() => import('./components/Account/Settings').then((m) => ({ default: m.ResetPassword })));
+const SubscriptionTab = lazy(() => import('./components/Account/Settings').then((m) => ({ default: m.SubscriptionTab })));
+const Support = lazy(() => import('./components/Account/Support').then((m) => ({ default: m.Support })));
+const Students = lazy(() => import('./components/Instructor/InstructorPages').then((m) => ({ default: m.Students })));
+const InstructorAnalytics = lazy(() => import('./components/Instructor/InstructorPages').then((m) => ({ default: m.InstructorAnalytics })));
+const AdminUsers = lazy(() => import('./components/Admin/AdminPages').then((m) => ({ default: m.AdminUsers })));
+const AdminModeration = lazy(() => import('./components/Admin/AdminPages').then((m) => ({ default: m.AdminModeration })));
+const AdminPayments = lazy(() => import('./components/Admin/AdminPages').then((m) => ({ default: m.AdminPayments })));
+const AdminAnalytics = lazy(() => import('./components/Admin/AdminPages').then((m) => ({ default: m.AdminAnalytics })));
+const PaymentReturn = lazy(() => import('./components/Payment/PaymentPages').then((m) => ({ default: m.PaymentReturn })));
+const PaymentSandbox = lazy(() => import('./components/Payment/PaymentPages').then((m) => ({ default: m.PaymentSandbox })));
+const Corrections = lazy(() => import('./components/Instructor/Corrections').then((m) => ({ default: m.Corrections })));
+const AdminCoupons = lazy(() => import('./components/Admin/AdminCoupons').then((m) => ({ default: m.AdminCoupons })));
+const InstructorCoupons = lazy(() => import('./components/Instructor/InstructorCoupons').then((m) => ({ default: m.InstructorCoupons })));
+const Reviews = lazy(() => import('./components/Learning/Reviews').then((m) => ({ default: m.Reviews })));
+const PublicProfile = lazy(() => import('./components/Learning/PublicProfile').then((m) => ({ default: m.PublicProfile })));
+const Downloads = lazy(() => import('./components/Course/Downloads').then((m) => ({ default: m.Downloads })));
+const PathList = lazy(() => import('./components/Path/Paths').then((m) => ({ default: m.PathList })));
+const PathDetail = lazy(() => import('./components/Path/Paths').then((m) => ({ default: m.PathDetail })));
+const MyPaths = lazy(() => import('./components/Path/Paths').then((m) => ({ default: m.MyPaths })));
+const InstructorCohorts = lazy(() => import('./components/Cohort/Cohorts').then((m) => ({ default: m.InstructorCohorts })));
+
+/** Pages accessibles sans être connecté. */
+const PUBLIC_ROUTES = ['/', '/catalog', '/courses/:slug', '/sessions', '/sessions/:id', '/marketplace',
+  '/marketplace/:slug', '/reset-password', '/certificates/verify/:code', '/verify', '/support', '/paths', '/paths/:slug', '/u/:handle'];
+
+/** Titre de l'onglet selon la page. */
+const TITLES: [string, string][] = [
+  ['/catalog', 'Catalogue des cours'], ['/courses/', 'Cours'], ['/learn/', 'Apprentissage'], ['/sessions', 'Sessions en direct'],
+  ['/marketplace', 'Ressources'], ['/my-courses', 'Mes cours'], ['/certificates', 'Certificats'], ['/verify', 'Vérifier un certificat'],
+  ['/purchases', 'Mes achats'], ['/settings', 'Paramètres'], ['/create-course', 'Nouveau cours'], ['/edit-course/', 'Édition du cours'],
+  ['/students', 'Mes étudiants'], ['/analytics', 'Statistiques'], ['/users', 'Utilisateurs'], ['/moderation', 'Vérifications'],
+  ['/payments', 'Paiements'], ['/assignments', 'Corrections'], ['/coupons', 'Codes promo'], ['/support', 'Aide'], ['/payment/', 'Paiement'], ['/paths', 'Parcours'], ['/my-paths', 'Mes parcours'], ['/downloads', 'Téléchargements'], ['/reviews', 'Révisions'], ['/u/', 'Profil'],
+  ['/my-coupons', 'Mes codes promo'], ['/my-cohorts', 'Promotions'],
+];
+
+const NotFound: React.FC = () => (
+  <div className="flex items-center justify-center min-h-96 text-center">
+    <div>
+      <p className="text-6xl mb-4">🧭</p>
+      <h2 className="text-xl font-bold text-gray-900 mb-2">Page introuvable</h2>
+      <button onClick={() => navigate('/')} className="text-primary-600 underline">Retour à l'accueil</button>
+    </div>
+  </div>
+);
 
 const AppContent: React.FC = () => {
   const { authState } = useAuth();
+  const { path, query } = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [showAuthModal, setShowAuthModal] = useState(!authState.isAuthenticated);
-  const [currentView, setCurrentView] = useState('dashboard');
-  const [selectedCourse, setSelectedCourse] = useState<any>(null);
-  const [selectedSession, setSelectedSession] = useState<any>(null);
-  const [isEnrolled, setIsEnrolled] = useState(false);
-  const { allCourses } = useCourses();
+  const [authModal, setAuthModal] = useState<null | 'login' | 'register'>(null);
+  const [registerRole, setRegisterRole] = useState<'ETUDIANT' | 'FORMATEUR'>('ETUDIANT');
 
-  const handleSearch = (term: string) => {
-    console.log('Recherche:', term);
-    setCurrentView('catalog');
+  const role = authState.user?.role;
+  const isPublic = PUBLIC_ROUTES.some((r) => matchPath(r, path));
+
+  // Page protégée sans session : on propose la connexion
+  useEffect(() => {
+    if (!authState.loading && !authState.isAuthenticated && !isPublic) setAuthModal('login');
+  }, [authState.loading, authState.isAuthenticated, isPublic]);
+
+  const requireAuth = () => setAuthModal('login');
+
+  useEffect(() => {
+    const title = TITLES.find(([prefix]) => path.startsWith(prefix))?.[1];
+    document.title = title ? `${title} · Kakatar Academy` : 'Kakatar Academy — Apprendre, progresser, réussir';
+  }, [path]);
+
+  const openRegister = (asRole: 'ETUDIANT' | 'FORMATEUR' = 'ETUDIANT') => {
+    setRegisterRole(asRole);
+    setAuthModal('register');
   };
 
-  const handleCourseSelect = (course: any) => {
-    setSelectedCourse(course);
-    setCurrentView('course-detail');
-  };
+  const route = (pattern: string) => matchPath(pattern, path);
 
-  const handleEnrollCourse = () => {
-    setIsEnrolled(true);
-    setCurrentView('course-player');
-  };
+  const renderPage = (): React.ReactNode => {
+    if (authState.loading) return <Spinner />;
+    let p: Record<string, string> | null;
 
-  const handleSessionSelect = (session: any) => {
-    setSelectedSession(session);
-    setCurrentView('session-booking');
-  };
-
-  const handleSessionBook = (sessionId: string, participantInfo: any) => {
-    console.log('Session booked:', sessionId, participantInfo);
-    setCurrentView('sessions');
-  };
-
-  const renderMainContent = () => {
-    if (!authState.isAuthenticated) {
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center p-4">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="text-center max-w-2xl"
-          >
-            <div className="w-20 h-20 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-8">
-              <span className="text-3xl">🎓</span>
-            </div>
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">
-              Bienvenue sur Kakatar Academy
-            </h1>
-            <p className="text-xl text-gray-600 mb-8">
-              Votre plateforme d'apprentissage hybride nouvelle génération
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-              <div className="bg-white p-6 rounded-xl shadow-lg">
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-                  📚
-                </div>
-                <h3 className="font-bold text-gray-900 mb-2">Cours d'expert</h3>
-                <p className="text-gray-600 text-sm">Apprenez avec les meilleurs formateurs</p>
-              </div>
-              <div className="bg-white p-6 rounded-xl shadow-lg">
-                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-                  🏆
-                </div>
-                <h3 className="font-bold text-gray-900 mb-2">Certifications</h3>
-                <p className="text-gray-600 text-sm">Obtenez des certificats reconnus</p>
-              </div>
-              <div className="bg-white p-6 rounded-xl shadow-lg">
-                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-                  👥
-                </div>
-                <h3 className="font-bold text-gray-900 mb-2">Communauté</h3>
-                <p className="text-gray-600 text-sm">Échangez avec d'autres apprenants</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setShowAuthModal(true)}
-              className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-xl text-lg font-semibold hover:from-blue-700 hover:to-purple-700 transition-all duration-200 shadow-lg"
-            >
-              Commencer maintenant
-            </button>
-          </motion.div>
-        </div>
-      );
+    if (path === '/') {
+      if (!authState.isAuthenticated) return null; // landing affichée hors layout
+      if (role === 'FORMATEUR') return <InstructorDashboard />;
+      if (role === 'ADMIN') return <AdminDashboard />;
+      return <StudentDashboard />;
     }
+    if (route('/catalog')) return <CourseCatalog key={query.get('category') || ''} initialSearch={query.get('q') || ''} initialCategory={query.get('category') || ''} onCourseSelect={(c) => navigate(`/courses/${c.slug}`)} />;
+    if ((p = route('/courses/:slug'))) return <CourseDetail key={p.slug} slug={p.slug} onRequireAuth={requireAuth} />;
+    if (route('/sessions')) return <SessionList />;
+    if ((p = route('/sessions/:id'))) return <SessionBooking sessionId={p.id} onRequireAuth={requireAuth} />;
+    if (route('/marketplace')) return <Marketplace />;
+    if ((p = route('/marketplace/:slug'))) return <ProductDetail slug={p.slug} onRequireAuth={requireAuth} />;
+    if (route('/reset-password')) return <ResetPassword uid={query.get('uid') || ''} token={query.get('token') || ''} />;
+    if ((p = route('/certificates/verify/:code'))) return <CertificateVerify code={p.code} />;
+    if (route('/verify')) return <CertificateLookup />;
+    if (route('/support')) return <Support />;
+    if (route('/paths')) return <PathList />;
+    if ((p = route('/u/:handle'))) return <PublicProfile key={p.handle} handle={p.handle} />;
+    if ((p = route('/paths/:slug'))) return <PathDetail key={p.slug} slug={p.slug} onRequireAuth={requireAuth} />;
 
-    const userRole = authState.user?.role;
-    
-    switch (currentView) {
-      case 'dashboard':
-        if (userRole === 'ETUDIANT') return <StudentDashboard />;
-        if (userRole === 'FORMATEUR') return <InstructorDashboard />;
-        if (userRole === 'ADMIN') return <AdminDashboard />;
-        return <StudentDashboard />;
-        
-      case 'catalog':
-      case 'my-courses':
-        return <CourseCatalog onCourseSelect={handleCourseSelect} />;
-        
-      case 'course-detail':
-        return selectedCourse ? (
-          <CourseDetail
-            course={selectedCourse}
-            onEnroll={handleEnrollCourse}
-            onBack={() => setCurrentView('catalog')}
-            isEnrolled={isEnrolled}
-          />
-        ) : (
-          <CourseCatalog onCourseSelect={handleCourseSelect} />
-        );
-        
-      case 'course-player':
-        return selectedCourse ? (
-          <CoursePlayer
-            modules={[
-              {
-                id: '1',
-                title: 'Introduction',
-                lessons: [
-                  { id: '1-1', title: 'Présentation du cours', duration: 15, type: 'VIDEO', completed: true },
-                  { id: '1-2', title: 'Installation', duration: 25, type: 'VIDEO', completed: false },
-                  { id: '1-3', title: 'Premier projet', duration: 30, type: 'PROJECT', completed: false, locked: true }
-                ]
-              }
-            ]}
-            currentLessonId="1-1"
-            onLessonChange={(lessonId) => console.log('Lesson changed:', lessonId)}
-            onBack={() => setCurrentView('course-detail')}
-            progress={25}
-          />
-        ) : null;
-        
-      case 'create-course':
-        return <CreateCourse />;
-        
-      case 'sessions':
-        return <SessionList onSessionSelect={handleSessionSelect} />;
-        
-      case 'session-booking':
-        return selectedSession ? (
-          <SessionBooking
-            session={selectedSession}
-            onBook={handleSessionBook}
-            onBack={() => setCurrentView('sessions')}
-          />
-        ) : (
-          <SessionList onSessionSelect={handleSessionSelect} />
-        );
-        
-      default:
-        return (
-          <div className="flex items-center justify-center min-h-96">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-2xl">🚧</span>
-              </div>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">Section en construction</h2>
-              <p className="text-gray-600">Cette fonctionnalité sera disponible prochainement.</p>
-            </div>
-          </div>
-        );
+    if (!authState.isAuthenticated) return <Spinner />;
+
+    if ((p = route('/learn/:slug'))) return <CoursePlayer key={p.slug} slug={p.slug} initialLessonId={query.get('lesson')} initialPanel={query.get('tab')} />;
+    if (route('/my-courses')) return <MyCourses />;
+    if (route('/certificates')) return <Certificates />;
+    if (route('/purchases')) return <Purchases />;
+    if (route('/downloads')) return <Downloads />;
+    if (route('/reviews')) return <Reviews />;
+    if (route('/settings')) return <Settings />;
+    if (route('/subscription')) return <SubscriptionTab />;
+    if (route('/payment/sandbox')) return <PaymentSandbox paymentId={query.get('payment') || ''} />;
+    if (route('/payment/return')) return <PaymentReturn paymentId={query.get('payment') || ''} />;
+
+    const instructor = role === 'FORMATEUR' || role === 'ADMIN';
+    if (instructor && route('/create-course')) return <CreateCourse />;
+    if (instructor && (p = route('/edit-course/:slug'))) return <CreateCourse key={p.slug} slug={p.slug} />;
+    if (instructor && route('/students')) return <Students />;
+    if (instructor && route('/assignments')) return <Corrections />;
+    if (instructor && route('/my-paths')) return <MyPaths />;
+    if (instructor && route('/my-cohorts')) return <InstructorCohorts />;
+    if (instructor && route('/my-coupons')) return <InstructorCoupons />;
+    if (role === 'FORMATEUR' && route('/analytics')) return <InstructorAnalytics />;
+
+    if (role === 'ADMIN') {
+      if (route('/analytics')) return <AdminAnalytics />;
+      if (route('/users')) return <AdminUsers />;
+      if (route('/moderation')) return <AdminModeration />;
+      if (route('/payments')) return <AdminPayments />;
+      if (route('/coupons')) return <AdminCoupons />;
     }
+    return <NotFound />;
   };
+
+  // Mode concentration : le lecteur de cours occupe tout l'écran, sans menu ni en-tête
+  const learnMatch = authState.isAuthenticated ? matchPath('/learn/:slug', path) : null;
+  if (learnMatch) {
+    return (
+      <MotionConfig reducedMotion="user">
+        <Suspense fallback={<Spinner className="min-h-screen" />}>
+          <CoursePlayer key={learnMatch.slug} slug={learnMatch.slug} initialLessonId={query.get('lesson')} initialPanel={query.get('tab')} />
+        </Suspense>
+      </MotionConfig>
+    );
+  }
+
+  const showLanding = path === '/' && !authState.isAuthenticated && !authState.loading;
+  const withSidebar = authState.isAuthenticated;
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className="min-h-screen bg-gray-50 flex">
-      {authState.isAuthenticated && (
+      {withSidebar && (
         <>
-          {/* Overlay mobile */}
-          {sidebarOpen && (
-            <div
-              className="fixed inset-0 bg-black bg-opacity-50 z-30 lg:hidden"
-              onClick={() => setSidebarOpen(false)}
-            />
-          )}
-          
-          {/* Sidebar */}
+          {sidebarOpen && <div className="fixed inset-0 bg-primary-950/40 backdrop-blur-sm z-30 lg:hidden" onClick={() => setSidebarOpen(false)} />}
           <Sidebar
             isOpen={sidebarOpen}
-            currentView={currentView}
-            onViewChange={(view) => {
-              setCurrentView(view);
+            currentPath={path}
+            onNavigate={(to) => {
+              navigate(to);
               setSidebarOpen(false);
             }}
           />
         </>
       )}
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {authState.isAuthenticated && (
-          <Header
-            onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
-            onSearch={handleSearch}
-          />
-        )}
-        
+      <div className="flex-1 flex flex-col min-w-0">
+        <Header
+          onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
+          onSearch={(term) => navigate(`/catalog?q=${encodeURIComponent(term)}`)}
+          onLogin={() => setAuthModal('login')}
+          onRegister={() => openRegister()}
+        />
         <main className="flex-1 overflow-y-auto">
-          {authState.isAuthenticated ? (
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-              {renderMainContent()}
-            </div>
+          {showLanding ? (
+            <Landing onStart={() => openRegister()} onTeach={() => openRegister('FORMATEUR')} />
           ) : (
-            renderMainContent()
+            <div className="container-page py-6 sm:py-8"><Suspense fallback={<Spinner />}>{renderPage()}</Suspense></div>
           )}
         </main>
+        {!authState.isAuthenticated && !authState.loading && <Footer />}
       </div>
 
-      {/* Modal d'authentification */}
+      <InstallPrompt />
       <AnimatePresence>
-        {showAuthModal && (
+        {authModal && (
           <AuthModal
-            isOpen={showAuthModal}
-            onClose={() => setShowAuthModal(false)}
+            key={authModal}
+            isOpen
+            initialMode={authModal}
+            initialRole={registerRole}
+            onClose={(success) => {
+              setAuthModal(null);
+              if (!success && !isPublic && !authState.isAuthenticated) navigate('/', { replace: true });
+            }}
           />
         )}
       </AnimatePresence>
     </div>
+    </MotionConfig>
   );
 };
 

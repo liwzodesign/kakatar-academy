@@ -1,0 +1,6 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Vous avez reçu une nouvelle commande pour <strong>{{ order.product.title }}</strong> de la part de {{ order.buyer.get_full_name }}.</p>
+{% if order.requirements %}<p><strong>Besoins :</strong> {{ order.requirements }}</p>{% endif %}
+<p>Livrez-la depuis votre espace « Mes ventes ».</p>
+{% endblock %}

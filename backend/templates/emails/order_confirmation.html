@@ -1,0 +1,5 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Votre commande <strong>{{ order.product.title }}</strong> est confirmée.</p>
+<p>{% if order.product.is_digital %}Vous pouvez télécharger votre ressource depuis « Mes achats ».{% else %}Le vendeur a été prévenu et livrera sous {{ order.product.delivery_days }} jour(s).{% endif %}</p>
+{% endblock %}

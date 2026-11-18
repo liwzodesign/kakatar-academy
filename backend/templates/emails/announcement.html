@@ -1,0 +1,8 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Nouvelle annonce de votre formateur dans <strong>{{ course.title }}</strong> :</p>
+<h2 style="font-size:18px;margin:16px 0 8px;">{{ announcement.title }}</h2>
+<p>{{ announcement.body|linebreaksbr }}</p>
+<p><a href="{{ frontend_url }}{{ link }}" style="background:#263682;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;">Ouvrir le cours</a></p>
+<p style="font-size:12px;color:#6b7280;">Vous pouvez désactiver ces emails dans Paramètres → Profil.</p>
+{% endblock %}

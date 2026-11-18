@@ -1,176 +1,117 @@
 import React from 'react';
-import { BookOpen, Clock, Trophy, TrendingUp, Calendar, Play, Star } from 'lucide-react';
-import { useCourses } from '../../hooks/useCourses';
-import { CourseCard } from '../Course/CourseCard';
+import { BookOpen, Clock, Trophy, Flame, Calendar, Play } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { api } from '../../lib/api';
+import { formatDuration } from '../../lib/format';
+import { mapCourse, mapEnrollment } from '../../lib/mappers';
+import { navigate } from '../../lib/router';
+import { useApi } from '../../hooks/useApi';
+import { useAuth } from '../../hooks/useAuth';
+import { CourseCard } from '../Course/CourseCard';
+import { EmptyState, ErrorBox, Spinner, StatCard, buttonPrimary } from '../UI';
+import { ProgressBar } from '../UI/kit';
+import { Achievements } from './Achievements';
+import { DailyGoal } from './DailyGoal';
+import { League, ReviewsBanner } from '../Learning/League';
 
 export const StudentDashboard: React.FC = () => {
-  const { allCourses } = useCourses();
+  const { authState } = useAuth();
+  const { data, loading, error, reload } = useApi(async () => {
+    const [dash, reco] = await Promise.all([api.get('/analytics/student/'), api.get('/ai/recommendations/', { limit: 3 }).catch(() => [])]);
+    return {
+      stats: dash.stats,
+      inProgress: (dash.in_progress as any[]).map(mapEnrollment),
+      upcoming: dash.upcoming_sessions,
+      recommended: ((reco.length ? reco : dash.recommended) as any[]).map(mapCourse),
+    };
+  }, []);
 
-  const stats = [
-    { label: 'Cours suivis', value: '12', icon: BookOpen, color: 'text-blue-600', bgColor: 'bg-blue-100' },
-    { label: 'Heures d\'étude', value: '145h', icon: Clock, color: 'text-green-600', bgColor: 'bg-green-100' },
-    { label: 'Certificats', value: '8', icon: Trophy, color: 'text-yellow-600', bgColor: 'bg-yellow-100' },
-    { label: 'Progression', value: '76%', icon: TrendingUp, color: 'text-purple-600', bgColor: 'bg-purple-100' }
-  ];
-
-  const recentCourses = allCourses.slice(0, 3);
-  const recommendedCourses = allCourses.slice(1, 4);
+  if (loading) return <Spinner />;
+  if (error || !data) return <ErrorBox message={error} onRetry={reload} />;
+  const { stats } = data;
 
   return (
     <div className="space-y-6">
-      {/* En-tête de bienvenue */}
-      <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl text-white p-8">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-        >
-          <h1 className="text-3xl font-bold mb-2">Bon retour, Marie ! 👋</h1>
-          <p className="text-blue-100 text-lg">Continuez votre parcours d'apprentissage</p>
+      <div className="bg-gradient-to-r from-primary-600 to-secondary-600 rounded-xl text-white p-8">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+          <h1 className="text-3xl font-bold mb-2">Bon retour, {authState.user?.firstName || authState.user?.name} ! 👋</h1>
+          <p className="text-primary-100 text-lg">
+            {stats.current_streak > 1 ? `${stats.current_streak} jours d'apprentissage d'affilée, continuez !` : "Continuez votre parcours d'apprentissage"}
+          </p>
         </motion.div>
       </div>
 
-      {/* Statistiques */}
+      <ReviewsBanner />
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, index) => {
-          const Icon = stat.icon;
-          return (
-            <motion.div
-              key={stat.label}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
-              className="bg-white rounded-xl p-6 shadow-sm border border-gray-100"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600 mb-1">{stat.label}</p>
-                  <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
-                </div>
-                <div className={`p-3 rounded-lg ${stat.bgColor}`}>
-                  <Icon className={`w-6 h-6 ${stat.color}`} />
-                </div>
-              </div>
-            </motion.div>
-          );
-        })}
+        <StatCard label="Cours suivis" value={stats.enrolled_courses} icon={BookOpen} />
+        <StatCard label="Temps d'étude" value={formatDuration(stats.study_time_minutes)} icon={Clock} color="bg-secondary-100 text-secondary-600" />
+        <StatCard label="Certificats" value={stats.certificates} icon={Trophy} color="bg-sun-100 text-sun-600" />
+        <StatCard label="Série en cours" value={`${stats.current_streak} j`} hint={`Record : ${stats.longest_streak} j`} icon={Flame} color="bg-sun-100 text-sun-600" />
       </div>
 
-      {/* Cours en cours */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-gray-900">Continuer l'apprentissage</h2>
-          <button className="text-blue-600 hover:text-blue-700 font-medium">Voir tout</button>
-        </div>
-
-        <div className="space-y-4">
-          {recentCourses.map((course, index) => (
-            <motion.div
-              key={course.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
-              className="flex items-center space-x-4 p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors cursor-pointer"
-            >
-              <img
-                src={course.thumbnail}
-                alt={course.title}
-                className="w-16 h-16 rounded-lg object-cover"
-              />
-              <div className="flex-1 min-w-0">
-                <h3 className="text-lg font-semibold text-gray-900 truncate">{course.title}</h3>
-                <p className="text-sm text-gray-600 mb-2">{course.instructor.name}</p>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${Math.random() * 80 + 10}%` }}
-                  ></div>
-                </div>
-              </div>
-              <button className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-                <Play className="w-4 h-4" />
-                <span>Continuer</span>
-              </button>
-            </motion.div>
-          ))}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Prochaines sessions */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-gray-900">Prochaines sessions</h2>
-            <Calendar className="w-5 h-5 text-gray-400" />
-          </div>
-
-          <div className="space-y-4">
-            {[
-              { title: 'Workshop React Avancé', date: '15 Déc, 14h00', instructor: 'Dr. Jean Martin' },
-              { title: 'Session Data Science', date: '18 Déc, 10h00', instructor: 'Sarah Chen' },
-              { title: 'Atelier UX Design', date: '20 Déc, 16h00', instructor: 'Ahmed Okafor' }
-            ].map((session, index) => (
-              <motion.div
-                key={session.title}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: index * 0.1 }}
-                className="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
-              >
-                <div>
-                  <h3 className="font-semibold text-gray-900">{session.title}</h3>
-                  <p className="text-sm text-gray-600">{session.instructor}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-medium text-blue-600">{session.date}</p>
-                  <button className="text-xs text-blue-600 hover:text-blue-700 font-medium">
-                    Réserver
-                  </button>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-
-        {/* Cours recommandés */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-gray-900">Recommandé pour vous</h2>
-            <Star className="w-5 h-5 text-yellow-400" />
-          </div>
-
-          <div className="space-y-4">
-            {recommendedCourses.map((course, index) => (
-              <motion.div
-                key={course.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: index * 0.1 }}
-                className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
-              >
-                <img
-                  src={course.thumbnail}
-                  alt={course.title}
-                  className="w-12 h-12 rounded-lg object-cover"
-                />
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-gray-900 text-sm truncate">{course.title}</h3>
-                  <div className="flex items-center space-x-2 mt-1">
-                    <span className="text-xs text-gray-600">{course.instructor.name}</span>
-                    <span className="text-xs text-yellow-600 font-medium">
-                      ★ {course.rating}
-                    </span>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white rounded-2xl shadow-card ring-1 ring-gray-100 p-6">
+          <h2 className="text-xl font-extrabold text-gray-900 mb-4">Continuer mes cours</h2>
+          {data.inProgress.length === 0 ? (
+            <EmptyState title="Aucun cours en cours" text="Explorez le catalogue pour commencer." action={<button className={buttonPrimary} onClick={() => navigate('/catalog')}>Voir le catalogue</button>} />
+          ) : (
+            <div className="space-y-4">
+              {data.inProgress.map((e) => (
+                <div key={e.id} className="flex items-center space-x-4 p-3 rounded-lg hover:bg-gray-50">
+                  <img src={e.course.thumbnail} alt="" className="w-20 h-14 rounded-lg object-cover" />
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 truncate">{e.course.title}</h3>
+                    <p className="text-sm text-gray-500">{e.course.instructor.name}</p>
+                    <div className="flex items-center space-x-2 mt-1">
+                      <ProgressBar value={e.progress} className="flex-1" label="Progression" />
+                      <span className="text-xs text-gray-600">{Math.round(e.progress)} %</span>
+                    </div>
                   </div>
-                  <p className="text-xs text-blue-600 font-bold mt-1">
-                    {new Intl.NumberFormat('fr-FR').format(course.price)} FCFA
-                  </p>
+                  <button onClick={() => navigate(`/learn/${e.course.slug}`)} className="p-3 bg-primary-700 text-white rounded-full hover:bg-primary-800"><Play className="w-4 h-4" /></button>
                 </div>
-              </motion.div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-card ring-1 ring-gray-100 p-6">
+          <h2 className="text-xl font-extrabold text-gray-900 mb-4">Prochaines sessions</h2>
+          {data.upcoming.length === 0 ? (
+            <p className="text-gray-500 text-sm">Aucune session réservée. <button className="text-primary-700 font-semibold hover:underline" onClick={() => navigate('/sessions')}>Voir les sessions</button></p>
+          ) : (
+            <div className="space-y-3">
+              {data.upcoming.map((s: any) => (
+                <button key={s.id} onClick={() => navigate(`/sessions/${s.id}`)} className="w-full text-left flex items-start space-x-3 p-3 rounded-lg hover:bg-gray-50">
+                  <Calendar className="w-5 h-5 text-primary-600 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-gray-900">{s.title}</p>
+                    <p className="text-sm text-gray-500">{new Date(s.start_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <DailyGoal />
+        <League />
+      </div>
+
+      <Achievements />
+
+      {data.recommended.length > 0 && (
+        <div>
+          <h2 className="text-xl font-extrabold text-gray-900 mb-4">Recommandés pour vous</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {data.recommended.slice(0, 3).map((course) => (
+              <CourseCard key={course.id} course={course} onClick={() => navigate(`/courses/${course.slug}`)} />
             ))}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

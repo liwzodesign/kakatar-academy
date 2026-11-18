@@ -1,0 +1,6 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Votre inscription à la session <strong>{{ session.title }}</strong> est confirmée.</p>
+<p>📅 {{ session.start_at|date:"l d F Y à H:i" }} ({{ session.duration }} min)<br>
+{% if session.type == "PRESENTIAL" %}📍 {{ session.location }}{% else %}💻 En ligne : le lien sera accessible depuis la plateforme 15 minutes avant le début.{% endif %}</p>
+{% endblock %}

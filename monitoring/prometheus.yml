@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 30s
+
+scrape_configs:
+  # Métriques Django (django-prometheus) — accessibles uniquement sur le réseau interne
+  - job_name: kakatar-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['backend:8000']

@@ -21,7 +21,7 @@ class UserAdmin(BaseUserAdmin):
     ]
     search_fields = ['email', 'first_name', 'last_name', 'username']
     ordering = ['-date_joined']
-    readonly_fields = ['id', 'created_at', 'updated_at', 'last_activity']
+    readonly_fields = ['id', 'created_at', 'updated_at', 'last_activity', 'date_joined']
     
     fieldsets = (
         (None, {'fields': ('email', 'password')}),
@@ -44,7 +44,7 @@ class UserAdmin(BaseUserAdmin):
             'classes': ('collapse',)
         }),
         (_('Sécurité'), {
-            'fields': ('two_factor_enabled', 'last_login_ip'),
+            'fields': ('two_factor_enabled', 'is_banned', 'last_login_ip'),
             'classes': ('collapse',)
         }),
         (_('Métadonnées'), {
@@ -186,4 +186,4 @@ def reject_verifications(modeladmin, request, queryset):
         verification.save()
 
 # Ajouter les actions aux modèles
-UserVerificationAdmin.actions = [approve_verifications, reject_verifications] 
+UserVerificationAdmin.actions = [approve_verifications, reject_verifications]

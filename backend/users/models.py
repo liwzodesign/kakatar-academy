@@ -1,8 +1,50 @@
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 from django.core.validators import RegexValidator
+from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 import uuid
+
+
+class UserManager(BaseUserManager):
+    """Manager : l'email sert d'identifiant ; le username est généré s'il est absent."""
+
+    use_in_migrations = True
+
+    def _unique_username(self, base):
+        base = slugify(base)[:140] or 'user'
+        candidate, i = base, 1
+        while self.model.objects.filter(username=candidate).exists():
+            i += 1
+            candidate = f"{base}-{i}"
+        return candidate
+
+    def _create_user(self, email, password, **extra_fields):
+        if not email:
+            raise ValueError("L'adresse email est obligatoire")
+        email = self.normalize_email(email).lower()
+        if not extra_fields.get('username'):
+            extra_fields['username'] = self._unique_username(email.split('@')[0])
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_user(self, email, password=None, **extra_fields):
+        extra_fields.setdefault('is_staff', False)
+        extra_fields.setdefault('is_superuser', False)
+        return self._create_user(email, password, **extra_fields)
+
+    def create_superuser(self, email, password=None, **extra_fields):
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+        extra_fields.setdefault('role', 'ADMIN')
+        extra_fields.setdefault('verification_status', 'VERIFIED')
+        extra_fields.setdefault('is_verified', True)
+        if not extra_fields.get('is_staff') or not extra_fields.get('is_superuser'):
+            raise ValueError('Un superutilisateur doit avoir is_staff=True et is_superuser=True.')
+        return self._create_user(email, password, **extra_fields)
+
 
 class User(AbstractUser):
     """
@@ -89,6 +131,14 @@ class User(AbstractUser):
     # Sécurité et conformité
     is_verified = models.BooleanField(_('vérifié'), default=False)
     two_factor_enabled = models.BooleanField(_('authentification à deux facteurs'), default=False)
+    totp_secret = models.CharField(_('secret TOTP'), max_length=64, blank=True)
+    is_banned = models.BooleanField(_('banni'), default=False)
+
+    # Parrainage
+    referral_code = models.CharField(_('code de parrainage'), max_length=12, unique=True, null=True, blank=True)
+    referred_by = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='referrals',
+                                    verbose_name=_('parrain'))
+    referral_rewarded = models.BooleanField(_('récompense de parrainage versée'), default=False)
     last_login_ip = models.GenericIPAddressField(_('dernière IP de connexion'), blank=True, null=True)
     
     # Métadonnées
@@ -100,7 +150,12 @@ class User(AbstractUser):
     is_active = models.BooleanField(_('actif'), default=True)
     is_staff = models.BooleanField(_('membre du staff'), default=False)
     date_joined = models.DateTimeField(_('date d\'inscription'), auto_now_add=True)
-    
+
+    objects = UserManager()
+
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['first_name', 'last_name']
+
     class Meta:
         verbose_name = _('utilisateur')
         verbose_name_plural = _('utilisateurs')
@@ -147,15 +202,49 @@ class User(AbstractUser):
             return self.avatar.url
         return f"https://ui-avatars.com/api/?name={self.get_full_name()}&background=random"
     
-    def update_rating(self, new_rating):
-        """Met à jour la note moyenne de l'utilisateur"""
-        if self.rating_count == 0:
-            self.rating_average = new_rating
-        else:
-            total_rating = (self.rating_average * self.rating_count) + new_rating
-            self.rating_count += 1
-            self.rating_average = total_rating / self.rating_count
+    def ensure_referral_code(self):
+        """Code de parrainage court et lisible (sans 0/O/1/I), généré à la demande."""
+        if not self.referral_code:
+            import secrets
+            alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+            while True:
+                code = ''.join(secrets.choice(alphabet) for _ in range(7))
+                if not User.objects.filter(referral_code=code).exists():
+                    break
+            self.referral_code = code
+            self.save(update_fields=['referral_code'])
+        return self.referral_code
+
+    def save(self, *args, **kwargs):
+        if not self.username:
+            self.username = User.objects._unique_username((self.email or 'user').split('@')[0])
+        super().save(*args, **kwargs)
+
+    def update_rating(self, new_rating=None):
+        """Recalcule la note moyenne du formateur à partir des avis de ses cours."""
+        from django.db.models import Avg, Count
+        from courses.models import CourseReview
+
+        agg = CourseReview.objects.filter(course__instructor=self).aggregate(avg=Avg('rating'), count=Count('id'))
+        self.rating_average = round(agg['avg'] or 0, 2)
+        self.rating_count = agg['count'] or 0
         self.save(update_fields=['rating_average', 'rating_count'])
+
+    def refresh_instructor_stats(self):
+        """Recalcule les statistiques agrégées du formateur."""
+        from django.db.models import Sum
+        from courses.models import Course, Enrollment
+
+        courses = Course.objects.filter(instructor=self).exclude(status=Course.Status.ARCHIVED)
+        self.total_courses_created = courses.count()
+        self.total_students = Enrollment.objects.filter(course__instructor=self).values('user').distinct().count()
+        try:
+            from payments.models import Commission
+            self.total_revenue = Commission.objects.filter(instructor=self).aggregate(
+                s=Sum('instructor_amount'))['s'] or 0
+        except Exception:  # pragma: no cover
+            pass
+        self.save(update_fields=['total_courses_created', 'total_students', 'total_revenue'])
 
 class UserProfile(models.Model):
     """
@@ -177,6 +266,17 @@ class UserProfile(models.Model):
     total_study_time = models.PositiveIntegerField(_('temps d\'étude total en minutes'), default=0)
     current_streak = models.PositiveIntegerField(_('série actuelle de jours'), default=0)
     longest_streak = models.PositiveIntegerField(_('plus longue série'), default=0)
+
+    # Objectif quotidien et rappel
+    daily_goal_minutes = models.PositiveIntegerField(_('objectif quotidien (minutes)'), default=15)
+    reminder_enabled = models.BooleanField(_('rappel quotidien'), default=True)
+    reminder_hour = models.PositiveSmallIntegerField(_('heure du rappel'), default=19)
+
+    # Profil public (portfolio) et classement — le profil public est désactivé par défaut
+    public_profile = models.BooleanField(_('profil public'), default=False)
+    public_handle = models.SlugField(_('adresse du profil public'), max_length=40, unique=True, null=True, blank=True)
+    headline = models.CharField(_('titre'), max_length=120, blank=True)
+    show_in_leaderboard = models.BooleanField(_('apparaître dans la ligue'), default=True)
     
     # Réseau social
     followers = models.ManyToManyField(

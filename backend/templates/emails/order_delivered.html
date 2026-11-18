@@ -1,0 +1,6 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Votre commande <strong>{{ order.product.title }}</strong> a été livrée.</p>
+<p>{{ order.delivery_message|linebreaksbr }}</p>
+<p>Retrouvez-la dans « Mes achats » et validez la livraison.</p>
+{% endblock %}

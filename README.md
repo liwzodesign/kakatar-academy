@@ -1,275 +1,143 @@
-# 🎓 Kakatar Academy - Plateforme d'Apprentissage Hybride
+# 🎓 Kakatar Academy
 
-## 📋 Description
+Plateforme d'apprentissage en ligne : cours vidéo, quiz et certificats, sessions en direct (en ligne et en présentiel), marketplace de ressources, paiements mobiles (Wave, Orange Money via PayDunya) et par carte (Stripe), tuteur IA.
 
-Kakatar Academy est une plateforme d'apprentissage en ligne moderne et complète, conçue pour offrir une expérience pédagogique supérieure en combinant contenu multimédia, collaboration, intelligence artificielle, outils marketing et fonctionnalités sociales.
-
-## ✨ Fonctionnalités Principales
-
-### 🔐 Authentification & Gestion des Utilisateurs
-- **Système de rôles** : Étudiant, Formateur, Administrateur, Modérateur, Partenaire
-- **Vérification des comptes formateurs** avec documents et CV
-- **Authentification à deux facteurs** (MFA)
-- **Gestion des profils** avec compétences et objectifs d'apprentissage
-
-### 📚 Gestion des Cours
-- **Création de cours** avec modules et leçons
-- **Types de contenu** : Vidéo, Texte, Quiz, Projet, Ressource
-- **Structure hiérarchique** : Cours > Modules > Leçons
-- **Système de progression** et suivi des étudiants
-
-### 💳 Système de Paiement
-- **Multi-gateways** : Stripe, PayDunya, Wave, Mobile Money
-- **Codes promo** et système de remises
-- **Gestion des commissions** automatique pour les formateurs
-- **Abonnements** et paiements récurrents
-
-### 🎥 Gestion Vidéo
-- **Streaming HLS/DASH** avec CDN
-- **Upload sécurisé** vers S3/Cloudflare R2
-- **Sous-titrage automatique** via IA
-- **Mode hors-ligne** chiffré
-
-### 🤖 Services IA
-- **Recommandations de cours** basées sur l'IA
-- **Génération automatique de quiz**
-- **Résumés automatiques** des leçons
-- **Modération automatique** du contenu
-
-### 🏪 Marketplace
-- **Vente de ressources** (templates, fichiers source)
-- **Services de coaching** et prestations
-- **Gestion des livraisons** numériques
-
-### 📊 Analytics & Reporting
-- **Dashboard complet** pour formateurs et administrateurs
-- **Métriques d'engagement** et taux de complétion
-- **Export des données** (CSV/Excel)
-
-## 🏗️ Architecture Technique
-
-### Frontend
-- **React 18** + TypeScript
-- **Tailwind CSS** pour le styling
-- **Framer Motion** pour les animations
-- **Vite** pour le build et le développement
-
-### Backend
-- **Django 5.0** + Python 3.11+
-- **Django REST Framework** pour l'API
-- **PostgreSQL** comme base de données principale
-- **Redis** pour le cache et les sessions
-- **GraphQL** avec Graphene-Django
-
-### Infrastructure
-- **CDN** pour les assets et vidéos
-- **Stockage S3/R2** pour les fichiers
-- **Elasticsearch** pour la recherche
-- **Monitoring** avec Sentry et Prometheus
-
-## 🚀 Installation & Configuration
-
-### Prérequis
-- Python 3.11+
-- Node.js 18+
-- PostgreSQL 14+
-- Redis 6+
-- FFmpeg (pour le traitement vidéo)
-
-### 1. Cloner le projet
-```bash
-git clone https://github.com/votre-username/kakatar-academy.git
-cd kakatar-academy
-```
-
-### 2. Configuration Backend
-```bash
-# Créer un environnement virtuel
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# ou
-venv\Scripts\activate  # Windows
-
-# Installer les dépendances
-cd backend
-pip install -r requirements.txt
-
-# Créer le fichier .env
-cp .env.example .env
-# Éditer .env avec vos configurations
-
-# Migrations et superuser
-python manage.py makemigrations
-python manage.py migrate
-python manage.py createsuperuser
-
-# Démarrer le serveur
-python manage.py runserver
-```
-
-### 3. Configuration Frontend
-```bash
-# Installer les dépendances
-npm install
-
-# Démarrer le serveur de développement
-npm run dev
-```
-
-### 4. Configuration Base de Données
-```sql
--- Créer la base de données
-CREATE DATABASE kakatar_academy;
-CREATE USER kakatar_user WITH PASSWORD 'votre_mot_de_passe';
-GRANT ALL PRIVILEGES ON DATABASE kakatar_academy TO kakatar_user;
-```
-
-## 🔧 Configuration des Variables d'Environnement
-
-Créez un fichier `.env` dans le dossier `backend/` :
-
-```env
-# Django
-DEBUG=True
-SECRET_KEY=votre-secret-key-ici
-ALLOWED_HOSTS=localhost,127.0.0.1
-
-# Base de données
-DB_NAME=kakatar_academy
-DB_USER=kakatar_user
-DB_PASSWORD=votre_mot_de_passe
-DB_HOST=localhost
-DB_PORT=5432
-
-# Redis
-REDIS_URL=redis://127.0.0.1:6379/1
-
-# Email
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USE_TLS=True
-EMAIL_HOST_USER=votre-email@gmail.com
-EMAIL_HOST_PASSWORD=votre-app-password
-
-# Stripe
-STRIPE_PUBLISHABLE_KEY=pk_test_votre_cle
-STRIPE_SECRET_KEY=sk_test_votre_cle
-STRIPE_WEBHOOK_SECRET=whsec_votre_webhook
-
-# OpenAI
-OPENAI_API_KEY=votre_cle_openai
-
-# AWS S3 (optionnel)
-USE_S3=False
-AWS_ACCESS_KEY_ID=votre_cle_aws
-AWS_SECRET_ACCESS_KEY=votre_secret_aws
-AWS_STORAGE_BUCKET_NAME=votre_bucket
-```
-
-## 📱 Structure de l'Application
-
-```
-kakataracademy/
-├── frontend/                 # Application React
-│   ├── src/
-│   │   ├── components/      # Composants réutilisables
-│   │   ├── pages/          # Pages de l'application
-│   │   ├── hooks/          # Hooks personnalisés
-│   │   ├── services/       # Services API
-│   │   └── utils/          # Utilitaires
-│   └── public/             # Assets statiques
-├── backend/                 # Application Django
-│   ├── kakatar_academy/    # Configuration principale
-│   ├── users/              # Gestion des utilisateurs
-│   ├── courses/            # Gestion des cours
-│   ├── payments/           # Système de paiement
-│   ├── sessions_live/      # Sessions en direct
-│   ├── marketplace/        # Marketplace
-│   ├── analytics/          # Analytics et reporting
-│   └── ai_services/        # Services IA
-└── docs/                   # Documentation
-```
-
-## 🧪 Tests
-
-### Backend
-```bash
-cd backend
-python manage.py test
-```
-
-### Frontend
-```bash
-npm run test
-npm run test:coverage
-```
-
-## 🚀 Déploiement
-
-### Production
-```bash
-# Backend
-cd backend
-python manage.py collectstatic
-python manage.py migrate
-gunicorn kakatar_academy.wsgi:application
-
-# Frontend
-npm run build
-# Servir les fichiers build avec nginx
-```
-
-### Docker (optionnel)
-```bash
-docker-compose up -d
-```
-
-## 📚 API Documentation
-
-L'API est documentée avec GraphQL et REST :
-
-- **GraphQL** : `/graphql/`
-- **REST API** : `/api/v1/`
-- **Admin Django** : `/admin/`
-
-## 🤝 Contribution
-
-1. Fork le projet
-2. Créer une branche feature (`git checkout -b feature/AmazingFeature`)
-3. Commit les changements (`git commit -m 'Add some AmazingFeature'`)
-4. Push vers la branche (`git push origin feature/AmazingFeature`)
-5. Ouvrir une Pull Request
-
-## 📄 Licence
-
-Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails.
-
-## 🆘 Support
-
-- **Documentation** : [docs.kakataracademy.com](https://docs.kakataracademy.com)
-- **Issues** : [GitHub Issues](https://github.com/votre-username/kakatar-academy/issues)
-- **Email** : support@kakataracademy.com
-
-## 🗺️ Roadmap
-
-### Phase 1 (MVP) - ✅ Complété
-- [x] Authentification et gestion des utilisateurs
-- [x] Création et gestion des cours
-- [x] Système de paiement de base
-- [x] Interface utilisateur moderne
-
-### Phase 2 - 🚧 En cours
-- [ ] Intégration des gateways de paiement
-- [ ] Système de streaming vidéo
-- [ ] Services IA de base
-- [ ] Marketplace
-
-### Phase 3 - 📋 Planifié
-- [ ] Sessions en direct et collaboration
-- [ ] Analytics avancés
-- [ ] Applications mobiles
-- [ ] Intégrations tierces
+- **Backend** : Django 5.2 + Django REST Framework, JWT, Celery, PostgreSQL (obligatoire, dev compris), Redis
+- **Frontend** : React 18 + TypeScript + Vite + Tailwind
+- **Infra** : Docker Compose (Nginx, Gunicorn, Celery worker/beat), Prometheus/Grafana en option
 
 ---
 
-**Développé avec ❤️ par l'équipe Kakatar Academy** 
+## Démarrage rapide (développement)
+
+Prérequis : Python 3.11+, Node.js 18+, **PostgreSQL 14+** (la seule base prise en charge).
+
+1. Créer un utilisateur et une base PostgreSQL :
+
+   ```sql
+   CREATE ROLE kakatar LOGIN PASSWORD 'un-mot-de-passe' CREATEDB;  -- CREATEDB : bases de test
+   CREATE DATABASE kakatar_academy OWNER kakatar;
+   ```
+
+2. Créer `backend/.env` :
+
+   ```
+   DEBUG=True
+   DATABASE_URL=postgres://kakatar:un-mot-de-passe@localhost:5432/kakatar_academy
+   ```
+
+3. Lancer :
+
+   ```bash
+   ./start.sh dev
+   ```
+
+Le script crée `backend/.venv`, installe les dépendances, applique les migrations, charge des **données de démo** puis lance :
+
+| Service | URL |
+|---|---|
+| Application | http://localhost:5173 |
+| API | http://localhost:5173/api/v1/ (proxy Vite → Django :8000) |
+| Admin Django | http://localhost:8000/admin/ |
+| GraphQL (lecture) | http://localhost:8000/graphql/ |
+
+Comptes de démo (mot de passe `password123`) : `marie@example.com` (étudiante), `jean@example.com` (formateur), `admin@kakatar.com` (admin). Code promo de démo : `BIENVENUE20`.
+
+En développement, sans configuration :
+- les **emails** s'affichent dans la console du backend ;
+- les **paiements** sont **simulés** (page « Paiement de démonstration ») tant qu'aucune clé de passerelle n'est fournie ;
+- les **tâches Celery** s'exécutent immédiatement (pas besoin de Redis) ;
+- l'**IA** utilise des heuristiques locales (pas besoin de clé OpenAI).
+
+### Manuellement
+
+```bash
+# Backend
+cd backend
+python -m venv .venv && .venv/Scripts/activate      # Linux/macOS : source .venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py seed_demo          # facultatif
+python manage.py runserver
+
+# Frontend (autre terminal, à la racine)
+npm install
+npm run dev
+```
+
+## Tests
+
+```bash
+./start.sh test              # tout : pytest + tsc + eslint + build
+cd backend && python -m pytest   # backend seul (≈ 10 s)
+```
+
+Les tests couvrent les parcours critiques : inscription/connexion/2FA/réinitialisation, verrouillage du contenu payant, achat avec coupon, idempotence des paiements, webhooks signés, remboursements, abonnements, sessions (capacité, paiement, rappels), marketplace (téléchargement sécurisé, livraison), tableaux de bord, exports CSV, IA locale. La CI GitHub Actions (`.github/workflows/ci.yml`) les exécute sur PostgreSQL.
+
+## Production (Docker)
+
+```bash
+cp .env.example .env     # renseigner SECRET_KEY, POSTGRES_PASSWORD, domaine, SMTP, clés de paiement
+docker compose up -d --build
+docker compose --profile monitoring up -d    # Prometheus (127.0.0.1:9090), Grafana (127.0.0.1:3001), Flower (127.0.0.1:5555)
+```
+
+Services : `postgres`, `redis`, `backend` (Gunicorn, migrations au démarrage), `celery`, `celery-beat`, `nginx` (sert le build React et proxifie `/api`, `/admin`, `/graphql`, `/media`). Seul le port 80 est publié.
+
+À faire avant la mise en ligne :
+1. **HTTPS** : terminer TLS devant Nginx (Cloudflare, certbot…), puis `SECURE_SSL_REDIRECT=True`.
+2. **Webhooks** à déclarer chez chaque passerelle (URL dans `.env.example`).
+3. `PAYMENTS_ALLOW_SANDBOX=False` (valeur par défaut hors DEBUG).
+4. Stockage des médias : disque (volume Docker) ou S3/Cloudflare R2 (`USE_S3=True`, URLs signées).
+5. Sauvegardes PostgreSQL et du volume `media_volume`.
+
+## Architecture backend
+
+| App | Rôle | Préfixe API |
+|---|---|---|
+| `users` | Comptes (email), rôles, JWT + liste noire, 2FA TOTP, réinitialisation de mot de passe, vérification des formateurs, abonnements entre utilisateurs, administration des comptes | `/api/v1/auth/` |
+| `courses` | Catégories, cours, modules, leçons (vidéo HLS, texte, quiz), inscriptions, progression, avis (modérés), favoris, certificats vérifiables | `/api/v1/courses/` |
+| `payments` | Checkout Stripe / PayDunya / Wave (+ sandbox), webhooks, coupons, abonnements, commissions formateurs, remboursements, versements | `/api/v1/payments/` |
+| `sessions_live` | Sessions en ligne (salle Jitsi auto) / présentiel, réservations gratuites ou payantes, rappels email, présence | `/api/v1/sessions/` |
+| `marketplace` | Ressources numériques (téléchargement protégé) et prestations (livraison) | `/api/v1/marketplace/` |
+| `analytics` | Tableaux de bord étudiant / formateur / admin, exports CSV, KPI quotidiens | `/api/v1/analytics/` |
+| `ai_services` | Recommandations, génération de quiz, résumés, tuteur IA, modération (OpenAI si clé, sinon local) | `/api/v1/ai/` |
+| `notifications` | Notifications in-app (cloche) : paiements, inscriptions, certificats, sessions, commandes, avis, questions | `/api/v1/notifications/` |
+| `community` | Questions/réponses sous chaque leçon (inscrits + formateur), « résolu », j'aime, modération, boîte formateur, annonces du formateur à la classe | `/api/v1/community/` |
+| `assignments` | Devoirs et projets : rendu (texte, lien, fichier privé), correction notée, reprise ou validation (valide la leçon) | `/api/v1/assignments/` |
+| `paths` | Parcours : plusieurs cours vendus ensemble à prix réduit, progression globale, revenus répartis au prorata | `/api/v1/paths/` |
+| `cohorts` | Promotions : groupe à dates fixes, places limitées, sessions live réservées aux membres (inscription automatique) | `/api/v1/cohorts/` |
+
+Points clés :
+- **Paiements** : aucune donnée bancaire ne transite par le serveur (pages hébergées des passerelles). La validation (`payments/services.py::fulfill_payment`) est idempotente : webhook et retour utilisateur peuvent arriver dans n'importe quel ordre.
+- **Contenu protégé** : le contenu et les vidéos des leçons payantes ne sont renvoyés qu'aux inscrits ; les justificatifs formateurs et fichiers marketplace ne sont accessibles que via l'API (Nginx bloque leur URL directe).
+- **Vidéo** : un fichier téléversé est transcodé en HLS 360p/720p par Celery + ffmpeg (inclus dans l'image Docker) ; sinon lecture MP4/YouTube/Vimeo.
+- **Tâches planifiées** (Celery beat) : expiration des abonnements et paiements abandonnés, rappels de sessions (24 h / 1 h), rappels d'objectif quotidien (à l'heure choisie par l'étudiant), instantané quotidien des KPI.
+- **Vidéos des leçons** : servies par des liens signés valables 6 h, l'accès étant revérifié à chaque requête (Nginx `X-Accel-Redirect` en production).
+- **Hors connexion** : l'étudiant peut enregistrer une leçon (texte + vidéo MP4) sur son appareil (`src/lib/offline.ts`, Cache Storage) et la revoir sans réseau depuis « Téléchargements ».
+- **Révisions intelligentes** (`analytics/learning.py`) : chaque question de quiz ratée devient une carte de révision (5 boîtes de Leitner : 1, 3, 7, 16, 35 jours) ; page « Révisions ».
+- **Écouter la leçon** : lecture à voix haute par la synthèse vocale de l'appareil (aucune donnée consommée, fonctionne hors connexion).
+- **Ligue de la semaine** (classement par minutes, prénom + initiale seulement, désactivable) et **profil public** facultatif `/u/<adresse>` (certificats vérifiables, badges, compétences ; jamais l'email).
+- **Économie de données** (`src/lib/dataSaver.ts`) : vidéo chargée à la demande, en plus basse qualité HLS ; activée automatiquement en 2G/3G ou si le téléphone le demande.
+
+## Application installable (PWA)
+
+Le site s'installe sur l'écran d'accueil (Android, iOS, ordinateur) : `public/manifest.webmanifest`, icônes dans `public/icons/`, service worker `public/sw.js` (actif en production uniquement). Le service worker met en cache l'application et ses fichiers statiques, **jamais** les réponses de l'API ni les médias privés. Hors connexion, l'application s'ouvre et affiche un message clair.
+
+## Architecture frontend
+
+- `src/lib/api.ts` : client HTTP (JWT, rafraîchissement automatique, erreurs lisibles, téléchargements)
+- `src/lib/router.ts` : routage par URL (pages publiques : accueil, catalogue, cours, sessions, marketplace, vérification de certificat)
+- `src/lib/mappers.ts` : conversion des réponses API vers les types de `src/types`
+- `src/components/` : `Course`, `Path`, `Cohort`, `Session`, `Marketplace`, `Payment`, `Dashboard`, `Instructor`, `Admin`, `Account`, `UI`
+
+## Variables d'environnement
+
+Toutes documentées dans [`.env.example`](.env.example). En local, placer le fichier dans `backend/.env` ; avec Docker, à la racine.
+
+## Limites connues / pistes
+
+- Pas d'application mobile native (le site est responsive).
+- Recherche via la base de données (suffisant jusqu'à plusieurs milliers de cours ; Elasticsearch/Meilisearch possible ensuite).
+- Les versements aux formateurs sont marqués « versés » manuellement après virement (pas de payout automatique).
+- Le schéma GraphQL est en lecture seule (catalogue) ; l'API REST reste la référence.

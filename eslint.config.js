@@ -23,6 +23,8 @@ export default tseslint.config(
         'warn',
         { allowConstantExport: true },
       ],
+      // Les réponses JSON de l'API sont converties dans src/lib/mappers.ts : `any` y est assumé.
+      '@typescript-eslint/no-explicit-any': 'warn',
     },
   }
 );

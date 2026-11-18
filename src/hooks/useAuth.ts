@@ -1,19 +1,37 @@
-import { useState, useContext, createContext, useEffect, createElement } from 'react';
-import { User, AuthState } from '../types';
+import { createContext, createElement, useCallback, useContext, useEffect, useState } from 'react';
+import { api, ApiError, tokens } from '../lib/api';
+import { mapUser } from '../lib/mappers';
+import { AuthState, User } from '../types';
+import { clearReferralCode, storedReferralCode } from '../components/Account/Referral';
 
-const AuthContext = createContext<{
+export interface RegisterData {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  role?: 'ETUDIANT' | 'FORMATEUR';
+}
+
+interface LoginResult {
+  ok: boolean;
+  otpRequired?: boolean;
+  error?: string;
+}
+
+interface AuthContextValue {
   authState: AuthState;
-  login: (email: string, password: string) => Promise<boolean>;
-  register: (data: any) => Promise<boolean>;
+  login: (email: string, password: string, otpCode?: string) => Promise<LoginResult>;
+  register: (data: RegisterData) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
   updateUser: (user: User) => void;
-} | null>(null);
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
   return context;
 };
 
@@ -21,76 +39,75 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [authState, setAuthState] = useState<AuthState>({
     user: null,
     isAuthenticated: false,
-    loading: false
+    loading: !!tokens.access,
   });
 
-  useEffect(() => {
-    // Simuler la récupération de l'état d'authentification depuis localStorage
-    const savedUser = localStorage.getItem('kakatar_user');
-    if (savedUser) {
-      const user = JSON.parse(savedUser);
-      setAuthState({ user, isAuthenticated: true, loading: false });
+  const setUser = (user: User | null) =>
+    setAuthState({ user, isAuthenticated: !!user, loading: false });
+
+  const refreshUser = useCallback(async () => {
+    if (!tokens.access) return setUser(null);
+    try {
+      setUser(mapUser(await api.get('/auth/profile/')));
+    } catch {
+      tokens.clear();
+      setUser(null);
     }
   }, []);
 
-  const login = async (email: string, password: string): Promise<boolean> => {
-    setAuthState(prev => ({ ...prev, loading: true }));
-    
-    // Simulation API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Mock users pour démo
-    const mockUsers: User[] = [
-      { id: '1', name: 'Marie Dubois', email: 'marie@example.com', role: 'ETUDIANT', verified: true, createdAt: new Date() },
-      { id: '2', name: 'Dr. Jean Martin', email: 'jean@example.com', role: 'FORMATEUR', verified: true, bio: 'Expert en développement web', createdAt: new Date() },
-      { id: '3', name: 'Admin User', email: 'admin@kakatar.com', role: 'ADMIN', verified: true, createdAt: new Date() }
-    ];
+  useEffect(() => {
+    refreshUser();
+    const onLogout = () => setUser(null);
+    window.addEventListener('kakatar:logout', onLogout);
+    return () => window.removeEventListener('kakatar:logout', onLogout);
+  }, [refreshUser]);
 
-    const user = mockUsers.find(u => u.email === email);
-    
-    if (user && password === 'password123') {
-      localStorage.setItem('kakatar_user', JSON.stringify(user));
-      setAuthState({ user, isAuthenticated: true, loading: false });
-      return true;
+  const login = async (email: string, password: string, otpCode?: string): Promise<LoginResult> => {
+    try {
+      const data = await api.post('/auth/login/', { email, password, otp_code: otpCode || undefined });
+      tokens.set(data.tokens.access, data.tokens.refresh);
+      setUser(mapUser(data.user));
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ApiError && err.data?.otp_required) return { ok: false, otpRequired: true };
+      return { ok: false, error: err instanceof ApiError && err.status === 400
+        ? (err.data?.otp_code ? 'Code 2FA invalide' : 'Email ou mot de passe incorrect')
+        : (err as Error).message };
     }
-    
-    setAuthState(prev => ({ ...prev, loading: false }));
-    return false;
   };
 
-  const register = async (data: any): Promise<boolean> => {
-    setAuthState(prev => ({ ...prev, loading: true }));
-    
-    // Simulation API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    const newUser: User = {
-      id: Date.now().toString(),
-      name: `${data.firstName} ${data.lastName}`,
-      email: data.email,
-      role: data.role || 'ETUDIANT',
-      verified: false,
-      createdAt: new Date()
-    };
-
-    localStorage.setItem('kakatar_user', JSON.stringify(newUser));
-    setAuthState({ user: newUser, isAuthenticated: true, loading: false });
-    return true;
+  const register = async (data: RegisterData) => {
+    try {
+      const res = await api.post('/auth/register/', {
+        email: data.email,
+        first_name: data.firstName,
+        last_name: data.lastName,
+        password: data.password,
+        password_confirm: data.password,
+        role: data.role || 'ETUDIANT',
+        referral_code: storedReferralCode() || undefined,
+      });
+      clearReferralCode();
+      tokens.set(res.tokens.access, res.tokens.refresh);
+      setUser(mapUser(res.user));
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
   };
 
   const logout = () => {
-    localStorage.removeItem('kakatar_user');
-    setAuthState({ user: null, isAuthenticated: false, loading: false });
+    const refresh = tokens.refresh;
+    if (refresh) api.post('/auth/logout/', { refresh }).catch(() => undefined);
+    tokens.clear();
+    setUser(null);
   };
 
-  const updateUser = (user: User) => {
-    localStorage.setItem('kakatar_user', JSON.stringify(user));
-    setAuthState(prev => ({ ...prev, user }));
-  };
+  const updateUser = (user: User) => setAuthState((prev) => ({ ...prev, user }));
 
   return createElement(
     AuthContext.Provider,
-    { value: { authState, login, register, logout, updateUser } },
+    { value: { authState, login, register, logout, refreshUser, updateUser } },
     children
   );
 };

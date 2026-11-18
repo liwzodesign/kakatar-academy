@@ -1,0 +1,6 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Bienvenue sur {{ site_name }} ! Votre compte a bien été créé.</p>
+{% if user.role == "FORMATEUR" %}<p>Pour publier vos cours, déposez vos justificatifs depuis votre espace formateur : notre équipe les vérifiera rapidement.</p>{% else %}<p>Parcourez le catalogue et commencez votre premier cours dès maintenant.</p>{% endif %}
+<p><a href="{{ frontend_url }}" style="background:#2563eb;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;">Accéder à la plateforme</a></p>
+{% endblock %}

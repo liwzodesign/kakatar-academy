@@ -1,0 +1,11 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Merci pour votre paiement. Voici votre reçu :</p>
+<table cellpadding="6" style="border-collapse:collapse;">
+<tr><td>Référence</td><td><strong>{{ payment.reference }}</strong></td></tr>
+<tr><td>Objet</td><td>{{ payment.description }}</td></tr>
+<tr><td>Montant</td><td><strong>{{ payment.amount|floatformat:0 }} {{ payment.currency }}</strong></td></tr>
+<tr><td>Moyen de paiement</td><td>{{ payment.get_gateway_display }}</td></tr>
+<tr><td>Date</td><td>{{ payment.completed_at|date:"d/m/Y H:i" }}</td></tr>
+</table>
+{% endblock %}

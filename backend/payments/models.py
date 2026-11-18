@@ -7,6 +7,10 @@ from django.utils import timezone
 from users.models import User
 from courses.models import Course
 
+
+def _reference():
+    return 'KA-' + uuid.uuid4().hex[:10].upper()
+
 class Payment(models.Model):
     """Modèle pour les paiements"""
     
@@ -26,6 +30,10 @@ class Payment(models.Model):
         RENEWAL = 'RENEWAL', _('Renouvellement')
         UPGRADE = 'UPGRADE', _('Mise à niveau')
         REFUND = 'REFUND', _('Remboursement')
+        SESSION_BOOKING = 'SESSION_BOOKING', _('Réservation de session')
+        MARKETPLACE_ORDER = 'MARKETPLACE_ORDER', _('Commande marketplace')
+        PATH_PURCHASE = 'PATH_PURCHASE', _('Achat de parcours')
+        COHORT_ENROLLMENT = 'COHORT_ENROLLMENT', _('Inscription à une cohorte')
     
     # Gateways de paiement
     class Gateway(models.TextChoices):
@@ -65,12 +73,17 @@ class Payment(models.Model):
         verbose_name=_('statut')
     )
     
+    # Référence interne (communiquée aux passerelles)
+    reference = models.CharField(_('référence'), max_length=20, unique=True, default=_reference, editable=False)
+    checkout_url = models.URLField(_('URL de paiement'), max_length=1000, blank=True)
+
     # Gateway et référence
     gateway = models.CharField(
         max_length=20,
         choices=Gateway.choices,
         verbose_name=_('gateway de paiement')
     )
+    is_sandbox = models.BooleanField(_('paiement simulé (sandbox)'), default=False)
     gateway_transaction_id = models.CharField(
         _('ID de transaction gateway'),
         max_length=255,
@@ -187,8 +200,16 @@ class CoursePurchase(models.Model):
         """Calcule la remise totale"""
         return self.discount_amount + self.coupon_discount
 
+class SubscriptionQuerySet(models.QuerySet):
+    def active_for(self, user):
+        now = timezone.now()
+        return self.filter(user=user, status='ACTIVE', start_date__lte=now, end_date__gte=now)
+
+
 class Subscription(models.Model):
     """Modèle pour les abonnements"""
+
+    objects = SubscriptionQuerySet.as_manager()
     
     # Types d'abonnement
     class Plan(models.TextChoices):
@@ -334,6 +355,12 @@ class Coupon(models.Model):
         verbose_name=_('statut')
     )
     
+    # Formateur qui a créé ce code (limité à ses propres cours) ; vide = code de la plateforme
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name='created_coupons')
+
+    # Code personnel (ex. récompense de parrainage) : utilisable uniquement par cet utilisateur
+    reserved_for = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name='personal_coupons')
+
     # Applicabilité
     applicable_courses = models.ManyToManyField(
         Course,
@@ -353,6 +380,20 @@ class Coupon(models.Model):
     
     def __str__(self):
         return f"{self.code} - {self.get_discount_display()}"
+
+    def get_discount_display(self):
+        """« -20 % » ou « -5 000 » (sans décimales inutiles, format français)."""
+        value = self.discount_value
+        text = f"{int(value):,}".replace(',', ' ') if value == value.to_integral_value()             else f"{value.normalize()}".replace('.', ',')
+        return f"-{text} %" if self.discount_type == self.DiscountType.PERCENTAGE else f"-{text}"
+
+    def applies_to(self, course):
+        """Le coupon s'applique-t-il à ce cours ? (aucune restriction = tous les cours)"""
+        courses = self.applicable_courses.all()
+        categories = self.applicable_categories.all()
+        if not courses and not categories:
+            return True
+        return course in courses or course.category in categories
     
     def is_valid(self):
         """Vérifie si le coupon est valide"""
@@ -367,15 +408,19 @@ class Coupon(models.Model):
         """Vérifie si l'utilisateur peut utiliser ce coupon"""
         if not self.is_valid():
             return False
-        
+        if self.reserved_for_id and self.reserved_for_id != user.id:
+            return False
+
         # Vérifier la limite par utilisateur
         user_usage = CouponUsage.objects.filter(coupon=self, user=user).count()
         return user_usage < self.per_user_limit
     
     def calculate_discount(self, amount):
         """Calcule la remise pour un montant donné"""
+        from decimal import Decimal
+        amount = Decimal(amount)
         if amount < self.minimum_amount:
-            return 0
+            return Decimal('0')
         
         if self.discount_type == self.DiscountType.PERCENTAGE:
             discount = (amount * self.discount_value) / 100
@@ -385,8 +430,8 @@ class Coupon(models.Model):
         # Appliquer la limite maximum si définie
         if self.maximum_discount:
             discount = min(discount, self.maximum_discount)
-        
-        return discount
+
+        return min(discount, amount).quantize(Decimal('0.01'))
 
 class CouponUsage(models.Model):
     """Modèle pour l'utilisation des coupons"""
@@ -443,10 +488,10 @@ class Commission(models.Model):
     """Modèle pour les commissions des formateurs"""
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    payment = models.OneToOneField(
+    payment = models.ForeignKey(
         Payment,
         on_delete=models.CASCADE,
-        related_name='commission',
+        related_name='commissions',
         verbose_name=_('paiement')
     )
     instructor = models.ForeignKey(
@@ -466,7 +511,7 @@ class Commission(models.Model):
         _('taux de commission'),
         max_digits=5,
         decimal_places=2,
-        default=15.00  # 15% par défaut
+        default=15.00  # part plateforme, 15 % par défaut
     )
     commission_amount = models.DecimalField(
         _('montant de la commission'),
@@ -479,6 +524,10 @@ class Commission(models.Model):
         decimal_places=2
     )
     
+    # Demande de versement qui couvre cette commission (réservation)
+    payout_request = models.ForeignKey('PayoutRequest', on_delete=models.SET_NULL, null=True, blank=True,
+                                       related_name='commissions')
+
     # Statut
     is_paid = models.BooleanField(_('payé'), default=False)
     paid_at = models.DateTimeField(_('date de paiement'), null=True, blank=True)
@@ -503,3 +552,38 @@ class Commission(models.Model):
         self.commission_amount = (self.total_amount * self.commission_rate) / 100
         self.instructor_amount = self.total_amount - self.commission_amount
         self.save(update_fields=['commission_amount', 'instructor_amount']) 
+
+class PayoutRequest(models.Model):
+    """Demande de versement d'un formateur : regroupe ses commissions non versées."""
+
+    class Method(models.TextChoices):
+        WAVE = 'WAVE', _('Wave')
+        ORANGE_MONEY = 'ORANGE_MONEY', _('Orange Money')
+        FREE_MONEY = 'FREE_MONEY', _('Free Money')
+        BANK_TRANSFER = 'BANK_TRANSFER', _('Virement bancaire')
+
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', _('En attente')
+        PAID = 'PAID', _('Versé')
+        REJECTED = 'REJECTED', _('Refusé')
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    instructor = models.ForeignKey(User, on_delete=models.CASCADE, related_name='payout_requests')
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3, default='XOF')
+    method = models.CharField(max_length=20, choices=Method.choices)
+    account = models.CharField(_('numéro ou IBAN'), max_length=64)
+    account_name = models.CharField(_('titulaire du compte'), max_length=120)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    admin_note = models.CharField(max_length=300, blank=True)
+    transaction_reference = models.CharField(_('référence du virement'), max_length=100, blank=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _('demande de versement')
+        verbose_name_plural = _('demandes de versement')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.instructor} — {self.amount} {self.currency} ({self.get_status_display()})'

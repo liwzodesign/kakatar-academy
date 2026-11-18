@@ -1,223 +1,61 @@
-# 🎯 Résumé du Développement - Session Kakatar Academy
+# État du développement — Kakatar Academy
 
-## 📅 Date : 11 août 2025
-## 🚀 Phase : Backend & Infrastructure
+_Mis à jour le 18 novembre 2026._
 
----
+## Ce qui a été corrigé par rapport à la version initiale
 
-## ✅ **Ce qui a été accompli :**
+La version précédente de ce document annonçait un projet « prêt », mais le backend ne démarrait pas :
+- 4 apps déclarées (`sessions_live`, `marketplace`, `analytics`, `ai_services`) n'existaient pas ;
+- `courses` et `payments` n'étaient pas des apps Django (pas de `__init__.py`/`apps.py`), `payments` n'avait ni vues ni routes ;
+- aucune migration, fichiers référencés absents (`signals.py`, `celery.py`, templates, handlers d'erreurs) ;
+- connexion par email impossible (`USERNAME_FIELD` absent), réinitialisation de mot de passe et 2FA simulées ;
+- le frontend fonctionnait entièrement sur des données fictives ;
+- `docker-compose.yml` pointait vers des fichiers inexistants.
 
-### 🔧 **1. Configuration Backend Django**
-- **Fichier `requirements.txt`** avec toutes les dépendances nécessaires
-- **Configuration Django** complète (`settings.py`) avec :
-  - Support multi-environnements
-  - Configuration base de données PostgreSQL
-  - Cache Redis
-  - JWT Authentication
-  - CORS configuré
-  - Support S3/R2 pour le stockage
-  - Configuration email
-  - Intégration Stripe et PayDunya
-  - Support OpenAI pour l'IA
-  - Elasticsearch pour la recherche
-  - Logging et monitoring
+## Ce qui est en place
 
-### 👥 **2. Application Users (Authentification)**
-- **Modèle User personnalisé** avec rôles multiples :
-  - ADMIN, FORMATEUR, ETUDIANT, MODERATEUR, PARTENAIRE
-  - Vérification des comptes formateurs
-  - Authentification à deux facteurs
-  - Profils utilisateurs étendus
-  - Système de suivi/followers
+| Domaine | État |
+|---|---|
+| Authentification (JWT, rôles, 2FA TOTP, mot de passe oublié, vérification formateurs) | ✅ testé |
+| Cours (création/édition, modules, leçons, quiz, progression, certificats, avis modérés, favoris) | ✅ testé |
+| Vidéo (upload, transcodage HLS ffmpeg via Celery, lecteur HLS) | ✅ (transcodage non testé sans ffmpeg local) |
+| Paiements (Stripe Checkout, PayDunya, Wave, sandbox, webhooks signés, coupons, abonnements, commissions, remboursements, versements) | ✅ testé en sandbox — **à valider avec de vraies clés de test de chaque passerelle** |
+| Sessions en direct (Jitsi, présentiel, réservation payante, rappels) | ✅ testé |
+| Marketplace (ressources, prestations, téléchargement protégé) | ✅ testé |
+| Analytics (3 tableaux de bord, exports CSV, KPI quotidiens) | ✅ testé |
+| IA (recommandations, quiz, résumés, tuteur, modération) | ✅ testé en mode local — mode OpenAI à valider avec une clé |
+| Base de données : PostgreSQL uniquement (dev, tests, Docker) — SQLite retiré | ✅ testé sur PostgreSQL 18 (local) et 16 (Docker) |
+| Notifications in-app (cloche, compteur, liens directs) | ✅ testé |
+| Questions/réponses par leçon + boîte « questions en attente » du formateur | ✅ testé |
+| Identité visuelle (logo officiel, palette, typographie Plus Jakarta Sans) et nouvelle page d'accueil | ✅ vérifié par captures d'écran (ordinateur + mobile, sans débordement, sans erreur console) |
+| Refonte complète de l'interface : lecteur de cours plein écran, éditeur de cours avec aperçu, pages admin, paramètres, sessions, composants partagés (`src/components/UI/kit.tsx`) | ✅ 25 pages vérifiées par captures (ordinateur + mobile 390 px) : aucun débordement, aucune erreur console |
+| Devoirs et projets corrigés (rendu, note, reprise, validation automatique de la leçon) | ✅ testé |
+| Annonces du formateur (notification + email en tâche de fond) et préférences d'email | ✅ testé |
+| Gestion des codes promo dans l'interface admin | ✅ vérifié à l'écran |
+| Application installable (PWA) et mode hors connexion | ✅ vérifié (service worker actif, page ouverte sans réseau) |
+| Demandes de versement des formateurs (Wave, Orange Money, Free Money, virement) et traitement admin | ✅ testé |
+| Parrainage (lien personnel, récompense au premier achat du filleul, code réservé au parrain) | ✅ testé |
+| Badges et points d'expérience (12 badges, 10 niveaux) | ✅ testé |
+| Ajout des sessions à l'agenda (Google Agenda, fichier .ics) | ✅ testé |
+| Réponse publique du formateur aux avis | ✅ testé |
+| Codes promo créés par les formateurs (limités à leurs propres cours, 90 % max.) | ✅ testé + vérifié à l'écran |
+| Objectif quotidien (5 à 60 min), série, 7 derniers jours, rappel email à l'heure choisie | ✅ testé + vérifié à l'écran |
+| Leçons hors connexion (page « Téléchargements ») et mode économie de données | ✅ vérifié à l'écran — enregistrement d'une vraie vidéo à tester sur téléphone |
+| Parcours (catalogue public, fiche, achat groupé, gestion formateur) | ✅ testé + vérifié à l'écran |
+| Révisions intelligentes (répétition espacée des questions ratées) | ✅ testé + session vérifiée dans le navigateur |
+| Écouter la leçon (synthèse vocale, vitesse réglable, hors connexion) | ✅ vérifié à l'écran |
+| Ligue de la semaine et profil public / portfolio (activable dans Paramètres) | ✅ testé + vérifié (ordinateur et mobile) |
+| Promotions / cohortes (inscription, places, sessions live réservées) | ✅ testé + parcours « rejoindre » vérifié dans le navigateur |
+| Frontend relié à l'API (toutes les pages) | ✅ build + typage OK, parcours achat vérifié par HTTP |
+| Docker / Nginx / Celery / PostgreSQL 16 | ✅ images construites, pile démarrée, parcours d'achat complet vérifié via Nginx sur PostgreSQL (monitoring non lancé) |
+| CI GitHub Actions | ✅ écrite, à déclencher au premier push |
 
-- **Sérialiseurs complets** pour l'API REST
-- **Vues API** avec toutes les fonctionnalités :
-  - Inscription/Connexion
-  - Gestion des profils
-  - Changement de mot de passe
-  - Réinitialisation de mot de passe
-  - Vérification des comptes
-  - Recherche d'utilisateurs
-  - Recommandations IA
+Tests backend : 71 tests pytest, tous verts (sur PostgreSQL).
 
-- **Permissions personnalisées** pour la sécurité
-- **Interface d'administration** Django complète
+## Reste à faire avant la production
 
-### 📚 **3. Application Courses (Gestion des Cours)**
-- **Modèles complets** :
-  - Course (cours)
-  - Category (catégories)
-  - Module (modules)
-  - Lesson (leçons)
-  - Enrollment (inscriptions)
-  - CourseReview (avis)
-
-- **Sérialiseurs API** pour toutes les opérations
-- **Vues API** complètes :
-  - CRUD des cours
-  - Gestion des modules et leçons
-  - Inscriptions et progression
-  - Système d'avis et évaluations
-  - Recherche et filtrage
-  - Analytics pour instructeurs
-
-### 💳 **4. Application Payments (Système de Paiement)**
-- **Modèles complets** :
-  - Payment (paiements)
-  - CoursePurchase (achats de cours)
-  - Subscription (abonnements)
-  - Coupon (codes promo)
-  - Commission (commissions formateurs)
-
-- **Sérialiseurs API** pour toutes les opérations de paiement
-- **Support multi-gateways** : Stripe, PayDunya, Wave, Mobile Money
-- **Système de coupons** et remises
-- **Gestion des commissions** automatique
-
-### 🐳 **5. Infrastructure Docker**
-- **`docker-compose.yml`** complet avec tous les services :
-  - PostgreSQL 15
-  - Redis 7
-  - Elasticsearch 8.11
-  - Backend Django
-  - Frontend React
-  - Nginx reverse proxy
-  - Celery pour tâches asynchrones
-  - Prometheus + Grafana pour le monitoring
-  - MailHog pour les emails de développement
-
-- **Dockerfile** pour le backend Django
-- **Script d'entrée** Docker avec vérifications et migrations automatiques
-
-### 🌐 **6. Configuration Nginx**
-- **Configuration complète** avec :
-  - Reverse proxy pour backend/frontend
-  - Gestion des fichiers statiques et media
-  - Rate limiting et sécurité
-  - Headers de sécurité
-  - Compression Gzip
-  - Support HTTPS (configuré mais commenté)
-
-### 🚀 **7. Scripts de Démarrage**
-- **Script `start.sh`** intelligent avec :
-  - Mode développement (Django + React)
-  - Mode production (Gunicorn + build statique)
-  - Mode Docker (tous les services)
-  - Vérification automatique des prérequis
-  - Menu interactif
-
-### 📚 **8. Documentation**
-- **README.md** complet avec :
-  - Description du projet
-  - Fonctionnalités principales
-  - Architecture technique
-  - Instructions d'installation
-  - Configuration des variables d'environnement
-  - Structure de l'application
-  - Roadmap et phases de développement
-
----
-
-## 🎯 **Fonctionnalités Implémentées :**
-
-### ✅ **Authentification & Sécurité**
-- [x] Système de rôles multiples
-- [x] Vérification des comptes formateurs
-- [x] Authentification JWT
-- [x] Authentification à deux facteurs
-- [x] Gestion des permissions granulaires
-- [x] Profils utilisateurs complets
-
-### ✅ **Gestion des Cours**
-- [x] Création/modification/suppression de cours
-- [x] Structure hiérarchique modules/leçons
-- [x] Types de contenu multiples (vidéo, texte, quiz, projet)
-- [x] Système d'inscription et progression
-- [x] Avis et évaluations
-- [x] Recherche et filtrage avancé
-
-### ✅ **Système de Paiement**
-- [x] Multi-gateways de paiement
-- [x] Codes promo et remises
-- [x] Abonnements récurrents
-- [x] Gestion des commissions
-- [x] Historique des transactions
-
-### ✅ **Infrastructure**
-- [x] Configuration Docker complète
-- [x] Reverse proxy Nginx
-- [x] Monitoring Prometheus/Grafana
-- [x] Cache Redis
-- [x] Recherche Elasticsearch
-- [x] Tâches asynchrones Celery
-
----
-
-## 🔄 **Prochaines Étapes Recommandées :**
-
-### **Phase 2 - Intégration & Services**
-1. **Intégration des gateways de paiement** (Stripe, PayDunya)
-2. **Système de streaming vidéo** avec HLS/DASH
-3. **Services IA** (OpenAI intégration)
-4. **Marketplace** de ressources
-5. **Sessions en direct** (WebRTC)
-
-### **Phase 3 - Fonctionnalités Avancées**
-1. **Analytics avancés** et reporting
-2. **Applications mobiles** (React Native)
-3. **Intégrations tierces** (SSO, LMS)
-4. **Tests automatisés** complets
-5. **CI/CD pipeline**
-
----
-
-## 🛠️ **Comment Démarrer :**
-
-### **Option 1 : Mode Développement (Recommandé)**
-```bash
-./start.sh dev
-```
-
-### **Option 2 : Mode Docker (Complet)**
-```bash
-./start.sh docker
-```
-
-### **Option 3 : Installation Manuelle**
-```bash
-# Backend
-cd backend
-python -m venv venv
-source venv/bin/activate  # ou venv\Scripts\activate sur Windows
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py runserver
-
-# Frontend
-cd frontend
-npm install
-npm run dev
-```
-
----
-
-## 🎉 **Résumé :**
-
-**Nous avons créé une base solide et complète pour Kakatar Academy avec :**
-
-- ✅ **Backend Django robuste** avec toutes les fonctionnalités principales
-- ✅ **API REST/GraphQL** complète et sécurisée
-- ✅ **Système d'authentification** avancé
-- ✅ **Gestion des cours** complète
-- ✅ **Système de paiement** multi-gateways
-- ✅ **Infrastructure Docker** production-ready
-- ✅ **Monitoring et observabilité** intégrés
-- ✅ **Documentation** complète et scripts de démarrage
-
-**Le projet est maintenant prêt pour :**
-- 🚀 **Développement local** immédiat
-- 🐳 **Déploiement Docker** en production
-- 🔧 **Extension** avec de nouvelles fonctionnalités
-- 🧪 **Tests** et validation
-
-**Kakatar Academy est sur la bonne voie pour devenir une plateforme d'apprentissage de référence ! 🎓✨** 
+1. Créer les comptes marchands (Stripe, PayDunya, Wave), tester chaque passerelle en mode test, déclarer les webhooks.
+2. Mettre en place HTTPS et le domaine ; configurer le SMTP.
+3. Décider des politiques commerciales (remboursement, taux de commission, prix des abonnements, montant minimum de versement, récompense de parrainage) — valeurs par défaut dans `.env.example` / `settings.py`.
+4. Relire les textes de la FAQ (`src/components/Account/Support.tsx`) et l'adresse de support.
+5. Tests en navigateur (parcours étudiant, formateur, admin) sur mobile et ordinateur.

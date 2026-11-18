@@ -1,508 +1,216 @@
 import React, { useState } from 'react';
-import { 
-  Calendar, 
-  Clock, 
-  MapPin, 
-  Users, 
-  User, 
-  CreditCard, 
-  CheckCircle,
-  AlertCircle,
-  Info
-} from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Calendar, CalendarPlus, Clock, MapPin, Users, Video, CheckCircle, ExternalLink } from 'lucide-react';
+import { api, downloadFile, unwrap } from '../../lib/api';
+import { formatPrice } from '../../lib/format';
+import { mapSession } from '../../lib/mappers';
+import { navigate } from '../../lib/router';
+import { useApi } from '../../hooks/useApi';
+import { useAuth } from '../../hooks/useAuth';
+import { Session } from '../../types';
+import { Avatar, Card, ErrorBox, Spinner, SuccessBox, buttonPrimary, inputClass } from '../UI';
+import { CheckoutModal } from '../Payment/CheckoutModal';
 
-interface Session {
-  id: string;
-  title: string;
-  description: string;
-  date: Date;
-  duration: number;
-  location: string;
-  capacity: number;
-  registrations: number;
-  price: number;
-  instructor: {
-    name: string;
-    avatar?: string;
-    bio: string;
-  };
-  type: 'ONLINE' | 'PRESENTIAL';
+/** Lien « Ajouter à Google Agenda » (sans le lien de visio, qui reste dans la plateforme). */
+function googleCalendarUrl(session: Session) {
+  const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const page = `${window.location.origin}/sessions/${session.id}`;
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: session.title,
+    dates: `${fmt(session.date)}/${fmt(session.endDate)}`,
+    details: `${session.description.slice(0, 500)}
+
+Animée par ${session.instructor.name}
+${page}`,
+    location: session.type === 'ONLINE' ? 'En ligne — Kakatar Academy' : session.location,
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
 interface SessionBookingProps {
-  session: Session;
-  onBook: (sessionId: string, participantInfo: any) => void;
-  onBack: () => void;
+  sessionId: string;
+  onRequireAuth: () => void;
 }
 
-export const SessionBooking: React.FC<SessionBookingProps> = ({ session, onBook, onBack }) => {
-  const [step, setStep] = useState(1);
-  const [participantInfo, setParticipantInfo] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    company: '',
-    experience: '',
-    expectations: ''
-  });
-  const [paymentMethod, setPaymentMethod] = useState('card');
-  const [isLoading, setIsLoading] = useState(false);
+export const SessionBooking: React.FC<SessionBookingProps> = ({ sessionId, onRequireAuth }) => {
+  const { authState } = useAuth();
+  const { data: session, loading, error, reload } = useApi(
+    async () => mapSession(await api.get(`/sessions/${sessionId}/`)),
+    [sessionId, authState.isAuthenticated]
+  );
+  const { data: attendees } = useApi(
+    async () => (session?.isOwner ? unwrap(await api.get(`/sessions/${sessionId}/attendees/`)) : []),
+    [session?.isOwner, sessionId]
+  );
+  const [info, setInfo] = useState({ phone: '', company: '', experience: 'DEBUTANT', expectations: '' });
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const [notice, setNotice] = useState('');
 
-  const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('fr-FR', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(price);
-  };
+  if (loading && !session) return <Spinner />;
+  if (error || !session) return <ErrorBox message={error || 'Session introuvable'} onRetry={reload} />;
 
-  const formatDate = (date: Date) => {
-    return new Intl.DateTimeFormat('fr-FR', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(date);
-  };
+  const set = (k: keyof typeof info) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+    setInfo({ ...info, [k]: e.target.value });
 
-  const availableSpots = session.capacity - session.registrations;
-  const isFullyBooked = availableSpots <= 0;
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const book = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-    
-    // Simulate booking process
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    onBook(session.id, participantInfo);
-    setIsLoading(false);
-  };
-
-  const renderStep = () => {
-    switch (step) {
-      case 1:
-        return (
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                Informations personnelles
-              </h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Prénom *
-                  </label>
-                  <input
-                    type="text"
-                    value={participantInfo.firstName}
-                    onChange={(e) => setParticipantInfo(prev => ({ ...prev, firstName: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Nom *
-                  </label>
-                  <input
-                    type="text"
-                    value={participantInfo.lastName}
-                    onChange={(e) => setParticipantInfo(prev => ({ ...prev, lastName: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Email *
-                  </label>
-                  <input
-                    type="email"
-                    value={participantInfo.email}
-                    onChange={(e) => setParticipantInfo(prev => ({ ...prev, email: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Téléphone
-                  </label>
-                  <input
-                    type="tel"
-                    value={participantInfo.phone}
-                    onChange={(e) => setParticipantInfo(prev => ({ ...prev, phone: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-              
-              <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Entreprise/Organisation
-                </label>
-                <input
-                  type="text"
-                  value={participantInfo.company}
-                  onChange={(e) => setParticipantInfo(prev => ({ ...prev, company: e.target.value }))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-            
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                Informations complémentaires
-              </h3>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Niveau d'expérience
-                  </label>
-                  <select
-                    value={participantInfo.experience}
-                    onChange={(e) => setParticipantInfo(prev => ({ ...prev, experience: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">Sélectionner votre niveau</option>
-                    <option value="beginner">Débutant</option>
-                    <option value="intermediate">Intermédiaire</option>
-                    <option value="advanced">Avancé</option>
-                    <option value="expert">Expert</option>
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Vos attentes pour cette session
-                  </label>
-                  <textarea
-                    value={participantInfo.expectations}
-                    onChange={(e) => setParticipantInfo(prev => ({ ...prev, expectations: e.target.value }))}
-                    rows={3}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Décrivez ce que vous espérez apprendre ou accomplir..."
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 2:
-        return (
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                Méthode de paiement
-              </h3>
-              
-              <div className="space-y-4">
-                <label className="flex items-center space-x-3 p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="payment"
-                    value="card"
-                    checked={paymentMethod === 'card'}
-                    onChange={(e) => setPaymentMethod(e.target.value)}
-                    className="text-blue-600"
-                  />
-                  <CreditCard className="w-5 h-5 text-gray-600" />
-                  <div>
-                    <p className="font-medium text-gray-900">Carte bancaire</p>
-                    <p className="text-sm text-gray-600">Visa, Mastercard, American Express</p>
-                  </div>
-                </label>
-                
-                <label className="flex items-center space-x-3 p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="payment"
-                    value="mobile"
-                    checked={paymentMethod === 'mobile'}
-                    onChange={(e) => setPaymentMethod(e.target.value)}
-                    className="text-blue-600"
-                  />
-                  <div className="w-5 h-5 bg-green-500 rounded flex items-center justify-center">
-                    <span className="text-white text-xs">M</span>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">Mobile Money</p>
-                    <p className="text-sm text-gray-600">Orange Money, MTN Mobile Money, Moov Money</p>
-                  </div>
-                </label>
-                
-                <label className="flex items-center space-x-3 p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="payment"
-                    value="wave"
-                    checked={paymentMethod === 'wave'}
-                    onChange={(e) => setPaymentMethod(e.target.value)}
-                    className="text-blue-600"
-                  />
-                  <div className="w-5 h-5 bg-blue-500 rounded flex items-center justify-center">
-                    <span className="text-white text-xs">W</span>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">Wave</p>
-                    <p className="text-sm text-gray-600">Paiement via Wave</p>
-                  </div>
-                </label>
-              </div>
-            </div>
-            
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-start space-x-3">
-                <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="font-medium text-blue-900">Politique d'annulation</h4>
-                  <p className="text-sm text-blue-800 mt-1">
-                    Vous pouvez annuler votre réservation jusqu'à 24h avant le début de la session 
-                    pour un remboursement complet. Les annulations tardives ne sont pas remboursables.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 3:
-        return (
-          <div className="space-y-6">
-            <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-              <div className="flex items-center space-x-3">
-                <CheckCircle className="w-8 h-8 text-green-600" />
-                <div>
-                  <h3 className="text-lg font-semibold text-green-900">
-                    Réservation confirmée !
-                  </h3>
-                  <p className="text-green-800">
-                    Votre place a été réservée avec succès.
-                  </p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-white border border-gray-200 rounded-lg p-6">
-              <h4 className="font-semibold text-gray-900 mb-4">Détails de votre réservation</h4>
-              
-              <div className="space-y-3 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Participant :</span>
-                  <span className="font-medium">{participantInfo.firstName} {participantInfo.lastName}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Email :</span>
-                  <span className="font-medium">{participantInfo.email}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Session :</span>
-                  <span className="font-medium">{session.title}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Date :</span>
-                  <span className="font-medium">{formatDate(session.date)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Lieu :</span>
-                  <span className="font-medium">{session.location}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Prix :</span>
-                  <span className="font-medium">{formatPrice(session.price)} FCFA</span>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-              <div className="flex items-start space-x-3">
-                <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="font-medium text-yellow-900">Prochaines étapes</h4>
-                  <ul className="text-sm text-yellow-800 mt-1 space-y-1">
-                    <li>• Un email de confirmation vous a été envoyé</li>
-                    <li>• Vous recevrez un rappel 24h avant la session</li>
-                    <li>• Préparez vos questions et matériel nécessaire</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-      default:
-        return null;
+    if (!authState.isAuthenticated) return onRequireAuth();
+    setActionError('');
+    if (session.price > 0) return setShowCheckout(true);
+    try {
+      await api.post(`/sessions/${session.id}/register/`, info);
+      setNotice('Inscription confirmée ! Un email de confirmation vous a été envoyé.');
+      reload();
+    } catch (err) {
+      setActionError((err as Error).message);
     }
   };
 
+  const join = async () => {
+    setActionError('');
+    try {
+      const res = await api.get(`/sessions/${session.id}/join/`);
+      window.open(res.meeting_url, '_blank', 'noopener');
+    } catch (err) {
+      setActionError((err as Error).message);
+    }
+  };
+
+  const cancel = async () => {
+    if (!confirm('Annuler votre inscription ?')) return;
+    try {
+      await api.post(`/sessions/${session.id}/cancel-registration/`);
+      reload();
+    } catch (err) {
+      setActionError((err as Error).message);
+    }
+  };
+
+  const cancelSession = async () => {
+    if (!confirm('Annuler cette session ? Les inscrits seront prévenus par email.')) return;
+    await api.delete(`/sessions/${session.id}/`);
+    reload();
+  };
+
+  const dateLabel = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'full', timeStyle: 'short' }).format(session.date);
+  const isPast = session.endDate < new Date();
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <button
-          onClick={onBack}
-          className="mb-6 text-gray-600 hover:text-gray-900 transition-colors"
-        >
-          ← Retour aux sessions
-        </button>
+    <div className="space-y-6">
+      <button onClick={() => navigate('/sessions')} className="text-gray-600 hover:text-gray-900">← Retour aux sessions</button>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Session Info */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 sticky top-8">
-              <h2 className="text-xl font-bold text-gray-900 mb-4">{session.title}</h2>
-              
-              <div className="space-y-4 text-sm">
-                <div className="flex items-center space-x-3">
-                  <Calendar className="w-5 h-5 text-gray-400" />
-                  <span>{formatDate(session.date)}</span>
-                </div>
-                
-                <div className="flex items-center space-x-3">
-                  <Clock className="w-5 h-5 text-gray-400" />
-                  <span>{session.duration} minutes</span>
-                </div>
-                
-                <div className="flex items-center space-x-3">
-                  <MapPin className="w-5 h-5 text-gray-400" />
-                  <span>{session.location}</span>
-                </div>
-                
-                <div className="flex items-center space-x-3">
-                  <Users className="w-5 h-5 text-gray-400" />
-                  <span>{availableSpots} places restantes sur {session.capacity}</span>
-                </div>
-              </div>
-              
-              <div className="mt-6 pt-6 border-t border-gray-200">
-                <div className="flex items-center space-x-3 mb-4">
-                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
-                    <User className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">{session.instructor.name}</p>
-                    <p className="text-sm text-gray-600">Formateur</p>
-                  </div>
-                </div>
-                <p className="text-sm text-gray-600">{session.instructor.bio}</p>
-              </div>
-              
-              <div className="mt-6 pt-6 border-t border-gray-200">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-gray-900 mb-1">
-                    {formatPrice(session.price)} FCFA
-                  </div>
-                  <p className="text-sm text-gray-600">Par participant</p>
-                </div>
-              </div>
-              
-              {isFullyBooked && (
-                <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
-                  <p className="text-sm text-red-800 text-center font-medium">
-                    Session complète
-                  </p>
-                </div>
-              )}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+          <Card>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">{session.title}</h1>
+            {session.status === 'CANCELLED' && <ErrorBox message="Cette session a été annulée." />}
+            <p className="text-gray-700 whitespace-pre-line mt-4">{session.description}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6 text-sm text-gray-700">
+              <div className="flex items-center space-x-2"><Calendar className="w-5 h-5 text-primary-600" /><span className="capitalize">{dateLabel}</span></div>
+              <div className="flex items-center space-x-2"><Clock className="w-5 h-5 text-primary-600" /><span>{session.duration} minutes</span></div>
+              <div className="flex items-center space-x-2">{session.type === 'ONLINE' ? <Video className="w-5 h-5 text-primary-600" /> : <MapPin className="w-5 h-5 text-primary-600" />}<span>{session.location}</span></div>
+              <div className="flex items-center space-x-2"><Users className="w-5 h-5 text-primary-600" /><span>{session.spotsLeft} places restantes sur {session.capacity}</span></div>
             </div>
-          </div>
+          </Card>
 
-          {/* Booking Form */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8">
-              {/* Progress Steps */}
-              {step < 3 && (
-                <div className="mb-8">
-                  <div className="flex items-center justify-between">
-                    {[
-                      { id: 1, title: 'Informations' },
-                      { id: 2, title: 'Paiement' }
-                    ].map((stepItem, index) => (
-                      <div key={stepItem.id} className="flex items-center">
-                        <div
-                          className={`w-8 h-8 rounded-full flex items-center justify-center font-semibold text-sm ${
-                            step >= stepItem.id
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-gray-200 text-gray-600'
-                          }`}
-                        >
-                          {stepItem.id}
-                        </div>
-                        <span className={`ml-2 font-medium ${
-                          step >= stepItem.id ? 'text-blue-600' : 'text-gray-500'
-                        }`}>
-                          {stepItem.title}
-                        </span>
-                        {index < 1 && (
-                          <div className={`flex-1 h-0.5 mx-8 ${
-                            step > stepItem.id ? 'bg-blue-600' : 'bg-gray-200'
-                          }`} />
-                        )}
+          {session.isOwner ? (
+            <Card>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900">Participants ({attendees?.length || 0})</h2>
+                {session.status !== 'CANCELLED' && !isPast && <button onClick={cancelSession} className="text-sm text-red-600">Annuler la session</button>}
+              </div>
+              {!attendees?.length ? (
+                <p className="text-gray-500">Aucun inscrit pour le moment.</p>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {attendees.map((a: any) => (
+                    <div key={a.id} className="py-3 flex items-center justify-between text-sm">
+                      <div>
+                        <p className="font-medium text-gray-900">{a.user.name}</p>
+                        <p className="text-gray-500">{a.user.email}{a.phone ? ` · ${a.phone}` : ''}</p>
+                        {a.expectations && <p className="text-gray-600 mt-1">« {a.expectations} »</p>}
                       </div>
-                    ))}
-                  </div>
+                      <span className={`px-2 py-1 rounded text-xs ${a.status === 'ATTENDED' ? 'bg-secondary-100 text-secondary-800' : 'bg-primary-100 text-primary-800'}`}>{a.status === 'ATTENDED' ? 'Présent' : 'Confirmé'}</span>
+                    </div>
+                  ))}
                 </div>
               )}
-
-              <form onSubmit={handleSubmit}>
-                {renderStep()}
-                
-                {step < 3 && (
-                  <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-200">
-                    {step > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => setStep(step - 1)}
-                        className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                      >
-                        Précédent
-                      </button>
-                    )}
-                    
-                    <div className="ml-auto">
-                      {step === 1 ? (
-                        <button
-                          type="button"
-                          onClick={() => setStep(2)}
-                          disabled={!participantInfo.firstName || !participantInfo.lastName || !participantInfo.email}
-                          className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Continuer
-                        </button>
-                      ) : (
-                        <button
-                          type="submit"
-                          disabled={isLoading || isFullyBooked}
-                          className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-                        >
-                          {isLoading ? (
-                            <>
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                              <span>Traitement...</span>
-                            </>
-                          ) : (
-                            <span>Confirmer la réservation</span>
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
+            </Card>
+          ) : session.isRegistered ? (
+            <Card className="space-y-4">
+              <div className="flex items-center space-x-3 text-secondary-700"><CheckCircle className="w-6 h-6" /><span className="font-semibold">Vous êtes inscrit à cette session.</span></div>
+              {session.type !== 'PRESENTIAL' && !isPast && (
+                <button onClick={join} className={`${buttonPrimary} flex items-center space-x-2`}><ExternalLink className="w-4 h-4" /><span>Rejoindre la salle</span></button>
+              )}
+              {session.recordingUrl && <a href={session.recordingUrl} target="_blank" rel="noreferrer" className="text-primary-700 font-semibold hover:underline">Voir l'enregistrement</a>}
+              {!isPast && <button onClick={cancel} className="text-sm text-gray-500 underline">Annuler mon inscription</button>}
+            </Card>
+          ) : session.status === 'SCHEDULED' && !isPast ? (
+            <Card>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Réserver ma place</h2>
+              <form onSubmit={book} className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input className={inputClass} placeholder="Téléphone" value={info.phone} onChange={set('phone')} />
+                  <input className={inputClass} placeholder="Entreprise / école" value={info.company} onChange={set('company')} />
+                </div>
+                <select className={inputClass} value={info.experience} onChange={set('experience')}>
+                  <option value="DEBUTANT">Je débute sur le sujet</option>
+                  <option value="INTERMEDIAIRE">J'ai quelques bases</option>
+                  <option value="AVANCE">Je suis à l'aise</option>
+                </select>
+                <textarea className={inputClass} rows={3} placeholder="Qu'attendez-vous de cette session ?" value={info.expectations} onChange={set('expectations')} />
+                {actionError && <ErrorBox message={actionError} />}
+                <button disabled={session.spotsLeft === 0} className={`${buttonPrimary} w-full py-3`}>
+                  {session.spotsLeft === 0 ? 'Complet' : session.price > 0 ? `Réserver — ${formatPrice(session.price, session.currency)}` : 'Réserver gratuitement'}
+                </button>
               </form>
+            </Card>
+          ) : null}
+          {notice && <SuccessBox message={notice} />}
+          {actionError && session.isRegistered && <ErrorBox message={actionError} />}
+        </div>
+
+        <div className="space-y-6">
+          <Card>
+            <p className="text-3xl font-bold text-gray-900">{formatPrice(session.price, session.currency)}</p>
+            <p className="text-sm text-gray-500">par participant</p>
+            {!isPast && session.status !== 'CANCELLED' && (
+              <div className="mt-5 pt-5 border-t border-gray-100 space-y-2">
+                <p className="text-sm font-semibold text-gray-900 flex items-center gap-2"><CalendarPlus className="w-4 h-4 text-primary-600" />Ajouter à mon agenda</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <a href={googleCalendarUrl(session)} target="_blank" rel="noreferrer"
+                    className="text-center text-sm font-semibold px-3 py-2 rounded-xl ring-1 ring-gray-200 hover:bg-gray-50">Google Agenda</a>
+                  <button onClick={() => downloadFile(`/sessions/${session.id}/calendar.ics`, 'session.ics')}
+                    className="text-sm font-semibold px-3 py-2 rounded-xl ring-1 ring-gray-200 hover:bg-gray-50">Outlook / Apple</button>
+                </div>
+              </div>
+            )}
+          </Card>
+          <Card>
+            <h3 className="font-semibold text-gray-900 mb-3">Animateur</h3>
+            <div className="flex items-center space-x-3 mb-3">
+              <Avatar name={session.instructor.name} src={session.instructor.avatar} />
+              <div>
+                <p className="font-medium text-gray-900">{session.instructor.name}</p>
+                <p className="text-sm text-gray-500">{session.instructor.rating ? `★ ${session.instructor.rating.toFixed(1)}` : 'Formateur'}</p>
+              </div>
             </div>
-          </div>
+            <p className="text-sm text-gray-600">{session.instructor.bio}</p>
+          </Card>
         </div>
       </div>
+
+      {showCheckout && (
+        <CheckoutModal
+          title={`Session : ${session.title}`}
+          amount={session.price}
+          currency={session.currency}
+          onClose={() => setShowCheckout(false)}
+          startCheckout={(gateway) => api.post(`/sessions/${session.id}/register/`, { ...info, gateway })}
+          onCompleted={reload}
+        />
+      )}
     </div>
   );
 };

@@ -1,0 +1,5 @@
+{% extends "emails/base.html" %}
+{% block content %}
+<p>Nous sommes désolés : la session <strong>{{ session.title }}</strong> prévue le {{ session.start_at|date:"d/m/Y à H:i" }} a été annulée par l'animateur.</p>
+<p>Si vous aviez payé, vous serez remboursé(e). Contactez le support pour toute question.</p>
+{% endblock %}
